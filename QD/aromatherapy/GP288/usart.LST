@@ -1,0 +1,80 @@
+C51 COMPILER V9.52.0.0   USART                                                             10/10/2016 14:28:55 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE USART
+OBJECT MODULE PLACED IN usart.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE usart.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "usart.h"
+   2          #include "string.h"
+   3          
+   4          static bool share_timer2_init_finish = FALSE;
+   5          volatile  COMx_Define xdata COM1;
+   6          static volatile u8 xdata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲
+   7          
+   8          void USART_Share_Timer2() {
+   9   1          if (!share_timer2_init_finish) 
+  10   1          {
+  11   2              Timer2_Stop();              //Timer stop
+  12   2              
+  13   2              Timer2_AsTimer();           //Timer2 set As Timer
+  14   2              Timer2_1T() ;               //Timer2 set as 1T mode
+  15   2              T2L = 0xCC;     //设定定时初值
+  16   2              T2H = 0xFF;     //设定定时初值
+  17   2              Timer2_InterruptDisable();  //禁止中断
+  18   2              
+  19   2              Timer2_Run();               //Timer run enable
+  20   2      
+  21   2              share_timer2_init_finish = TRUE;
+  22   2          }
+  23   1      }
+  24          
+  25          void USART_Init(COMx_Define xdata *com) {
+  26   1          com->TX_read = 0;
+  27   1          com->TX_write = 0;
+  28   1          com->B_TX_busy = 0;
+  29   1          com->RX_Cnt = 0;
+  30   1          com->RX_TimeOut = 0;
+  31   1          com->B_RX_OK = 0;
+  32   1      }
+  33          
+  34          // Handle usart trigger: TimeOut(usart command gap) count down to zero
+  35          bool USART_RX_Block(COMx_Define xdata *com) {
+  36   1          if (!com->RX_Cnt) 
+  37   1              return FALSE;
+  38   1      
+  39   1          if (com->RX_TimeOut && !--com->RX_TimeOut)
+  40   1              com->B_RX_OK = TRUE;
+  41   1      
+  42   1          if (!com->RX_TimeOut)
+  43   1              com->B_RX_OK = TRUE;
+  44   1      
+  45   1          return com->B_RX_OK;
+  46   1      }
+  47          
+  48          void USART_Finish_Rx(COMx_Define xdata *com) {
+  49   1          com->RX_Cnt = 0;
+  50   1          com->B_RX_OK = FALSE;
+  51   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    181    ----
+C51 COMPILER V9.52.0.0   USART                                                             10/10/2016 14:28:55 PAGE 2   
+
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     70    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

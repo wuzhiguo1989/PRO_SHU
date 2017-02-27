@@ -1,0 +1,94 @@
+C51 COMPILER V9.52.0.0   EXTENSION                                                         11/08/2016 20:38:38 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE EXTENSION
+OBJECT MODULE PLACED IN .\list\extension.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE extension.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\extension.lst) TABS(2) OBJ
+                    -ECT(.\list\extension.obj)
+
+line level    source
+
+   1          #include "extension.h"
+   2          #include <string.h>
+   3          #include <stdio.h>
+   4          #include <ctype.h>
+   5          
+   6          // static char *olds;
+   7          // char * STRTOK(char *s, const char *delim)
+   8          // {
+   9          //  char *token;
+  10          
+  11          //  if (s == NULL)
+  12          //    s = olds;
+  13          
+  14          //  s += strspn (s, delim);
+  15          //  if (*s == '\0')
+  16          //    {
+  17          //      olds = s;
+  18          //      return NULL;
+  19          //    }
+  20          
+  21          //  token = s;
+  22          //  s = strpbrk (token, delim);
+  23          //  if (s == NULL)
+  24          //    olds = memchr (token, '\0', 256);
+  25          //  else
+  26          //    {
+  27          //      *s = '\0';
+  28          //      olds = s + 1;
+  29          //    }
+  30          //  return token;
+  31          // }
+  32          
+  33          // char xdata strtok_test[] = "AT+HTTPPARA=\"URL\",\"api.yeelink.net/v1.0/device/344230/sensor/382670/data
+             -points\"\r\n\r\nOK\r\n";
+  34          // void tst_strtok (void) {
+  35          //   char *tok;
+  36          
+  37          //   tok = strtok (strtok_test, " \t\n");
+  38          
+  39          //   while (tok != NULL) {
+  40          //     printf ("Token: %s\r\n", tok);
+  41          //     tok = strtok (NULL, " \t\n");
+  42          //   }
+  43          // }
+  44          
+  45          bool startsWith(char *full, char *prefix) {
+  46   1        int prefix_size = strlen(prefix);
+  47   1        return strncmp(full, prefix, prefix_size);
+  48   1      }
+  49          
+  50          bool isEqual(char *dest, char *src) {
+  51   1        return strcmp(dest, src) == 0;
+  52   1      }
+  53          
+C51 COMPILER V9.52.0.0   EXTENSION                                                         11/08/2016 20:38:38 PAGE 2   
+
+  54          bool isEmpty(char *dest, int len) {
+  55   1        int i;
+  56   1        for (i = 0; i < len; ++i) {
+  57   2          if (isprint(dest[i])) {
+  58   3            return false;
+  59   3          }
+  60   2            
+  61   2        }
+  62   1        return true;
+  63   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    204    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      19
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

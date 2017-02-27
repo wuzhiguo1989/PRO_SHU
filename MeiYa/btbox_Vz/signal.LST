@@ -1,0 +1,12 @@
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/11/2016 22:50:38 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SIGNAL
+OBJECT MODULE PLACED IN signal.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE signal.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+*** ERROR C318 OF signal.c: can't open file 'signal.c'
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  1 ERROR(S)

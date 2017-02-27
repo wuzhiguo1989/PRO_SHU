@@ -1,0 +1,677 @@
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE DWSCREEN
+OBJECT MODULE PLACED IN .\list\dwscreen.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE dwscreen.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\dwscreen.lst) TABS(2) OBJEC
+                    -T(.\list\dwscreen.obj)
+
+line level    source
+
+   1          #include "dwscreen.h"
+   2          #include "process.h"
+   3          #include "task.h"
+   4          #include "alert.h"
+   5          #include "typealias.h"
+   6          #include "e2prom.h"
+   7          #include <stdio.h>
+   8          #include <string.h>
+   9          
+  10          workflow_t xdata dw_flow_read;
+  11          u32 password = 0x00000000;
+  12          u32 password_admin_input = 0x00000000;
+  13          u32 password_guest_input = 0x00000000;
+  14          u8 page = 0xFF;
+  15          
+  16          u8 last_dw_read;
+  17          
+  18          
+  19          // // 报警记录时间表
+  20          // u8 time_record[5][6] = {
+  21          //  {0, 0, 0, 0, 0, 0},
+  22          //  {0, 0, 0, 0, 0, 0},
+  23          //  {0, 0, 0, 0, 0, 0},
+  24          //  {0, 0, 0, 0, 0, 0},
+  25          //  {0, 0, 0, 0, 0, 0}
+  26          // };
+  27          
+  28          
+  29          
+  30          #define RESP_BUF_SIZE 128
+  31          static char xdata cached_response[RESP_BUF_SIZE];
+  32          char xdata *dw_cached_response = cached_response;
+  33          
+  34          
+  35          
+  36          // 料满延时停机
+  37          u8 time_fan_delay_stop = 10;
+  38          // 缺料延时启动
+  39          u8 time_fan_delay_full = 20;
+  40          // 吸料过程料满中断时间
+  41          // u8 time_feed_stop = 2;
+  42          
+  43          
+  44          
+  45          // 卸料阀延迟关闭时间
+  46          u8 time_feed_intercept = 0;
+  47          // 吸料阶段反吹时间
+  48          u8 time_spray_wash = 5;
+  49          // 吸料时间反吹间隔
+  50          u8 time_spray_wash_between = 35;
+  51          // 停机前阶段反吹阀反吹次数
+  52          u8 counter_for_spray_wash = 1;
+  53          // 停机前阶段反吹间隔
+  54          u8 time_spray_wash_between_before_stop = 35;
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 2   
+
+  55          // 停机前阶段反吹时间
+  56          u8 time_spray_wash_before_stop = 5;
+  57          
+  58          u8 tem_alter = 20;
+  59          u8 tem_stop = 100;
+  60          
+  61          // u8 counter_for_feed_lack = 0;
+  62          // u8 time_feed_suction = 20;
+  63          // u8 time_feed_discharge = 6;
+  64          // u8 time_feed_lack = 50;
+  65          // u8 counter_for_lack_alter = 1;
+  66          // u8 feed_lack_signal = 1;
+  67          
+  68          
+  69          u8 time_fan_delay_stop_set = 10;
+  70          u8 time_fan_delay_full_set = 20;
+  71          // u8 time_feed_suction_set = 20;
+  72          // u8 time_feed_discharge_set = 6;
+  73          u8 time_feed_intercept_set = 0;
+  74          u8 time_spray_wash_set = 5;
+  75          u8 time_spray_wash_between_set = 35;
+  76          u8 counter_for_spray_wash_set = 1;
+  77          // u8 time_feed_lack_set = 50;
+  78          // u8 counter_for_lack_alter_set = 1;
+  79          u8 tem_alter_set = 20;
+  80          u8 tem_stop_set = 100;
+  81          // u8 time_feed_stop_set = 2;
+  82          // u8 feed_lack_signal_set = 1;
+  83          u8 time_spray_wash_between_before_stop_set = 35;
+  84          u8 time_spray_wash_before_stop_set = 5;
+  85          
+  86          void send_dat_to_screen(u16 addr, u8 dat)
+  87          {
+  88   1        TX_write2buff(COM[COM2_ID], 0x5A);
+  89   1        TX_write2buff(COM[COM2_ID], 0xA5);
+  90   1        TX_write2buff(COM[COM2_ID], 0x05);
+  91   1        TX_write2buff(COM[COM2_ID], 0x82);
+  92   1        TX_write2buff(COM[COM2_ID], addr >> 8);
+  93   1        TX_write2buff(COM[COM2_ID], (u8)addr);
+  94   1        TX_write2buff(COM[COM2_ID], 0x00);
+  95   1        TX_write2buff(COM[COM2_ID], dat);
+  96   1      }
+  97          
+  98          void send_two_value_to_screen(u16 addr, u8 value_1, u8 value_2)
+  99          {
+ 100   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 101   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 102   1        TX_write2buff(COM[COM2_ID], 0x07);
+ 103   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 104   1        TX_write2buff(COM[COM2_ID], addr >> 8);
+ 105   1        TX_write2buff(COM[COM2_ID], (u8)addr);
+ 106   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 107   1        TX_write2buff(COM[COM2_ID], value_1);
+ 108   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 109   1        TX_write2buff(COM[COM2_ID], value_2);
+ 110   1      }
+ 111          
+ 112          void send_counter_for_feed_lack_to_dwscreen(u8 dat)
+ 113          {
+ 114   1        send_dat_to_screen(ADDR_COUNT_FOR_FEED_LACK, dat);
+ 115   1      }
+ 116          
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 3   
+
+ 117          void syc_available_siganl(u8 dat)
+ 118          {
+ 119   1        send_dat_to_screen(ADDR_COUNT_FOR_AVAILABLE, dat);
+ 120   1      }
+ 121          
+ 122          void syc_signal_start_fan(u8 dat) 
+ 123          {
+ 124   1        send_dat_to_screen(ADDR_START, dat);
+ 125   1      }
+ 126          
+ 127          void syc_signal_beep()
+ 128          {
+ 129   1        send_dat_to_screen(ADDR_BEEP_CONTROL, 0);
+ 130   1      }
+ 131          
+ 132          void clean_feed_lack_record()
+ 133          {
+ 134   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 135   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 136   1        TX_write2buff(COM[COM2_ID], 0x33);
+ 137   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 138   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 139   1        TX_write2buff(COM[COM2_ID], 0x86);
+ 140   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 141   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 142   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 143   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 144   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 145   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 146   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 147   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 148   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 149   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 150   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 151   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 152   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 153   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 154   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 155   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 156   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 157   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 158   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 159   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 160   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 161   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 162   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 163   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 164   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 165   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 166   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 167   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 168   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 169   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 170   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 171   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 172   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 173   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 174   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 175   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 176   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 177   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 178   1        TX_write2buff(COM[COM2_ID], 0x00);
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 4   
+
+ 179   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 180   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 181   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 182   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 183   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 184   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 185   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 186   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 187   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 188   1      }
+ 189          
+ 190          
+ 191          void display_all_para(u16 addr)
+ 192          {
+ 193   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 194   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 195   1        TX_write2buff(COM[COM2_ID], 0x17);
+ 196   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 197   1        TX_write2buff(COM[COM2_ID], addr >> 8);
+ 198   1        TX_write2buff(COM[COM2_ID], addr);
+ 199   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 200   1        TX_write2buff(COM[COM2_ID], time_spray_wash);
+ 201   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 202   1        TX_write2buff(COM[COM2_ID], time_spray_wash_between);
+ 203   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 204   1        TX_write2buff(COM[COM2_ID], counter_for_spray_wash);
+ 205   1        // TX_write2buff(COM[COM2_ID], 0x00);
+ 206   1        // TX_write2buff(COM[COM2_ID], time_feed_suction);
+ 207   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 208   1        TX_write2buff(COM[COM2_ID], time_feed_intercept);
+ 209   1        // TX_write2buff(COM[COM2_ID], 0x00);
+ 210   1        // TX_write2buff(COM[COM2_ID], time_feed_discharge);
+ 211   1        // TX_write2buff(COM[COM2_ID], 0x00);
+ 212   1        // TX_write2buff(COM[COM2_ID], time_feed_lack);
+ 213   1        // TX_write2buff(COM[COM2_ID], 0x00);
+ 214   1        // TX_write2buff(COM[COM2_ID], counter_for_lack_alter);
+ 215   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 216   1        TX_write2buff(COM[COM2_ID], time_spray_wash_before_stop);
+ 217   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 218   1        TX_write2buff(COM[COM2_ID], time_spray_wash_between_before_stop);
+ 219   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 220   1        TX_write2buff(COM[COM2_ID], time_fan_delay_stop);
+ 221   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 222   1        TX_write2buff(COM[COM2_ID], time_fan_delay_full);
+ 223   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 224   1        TX_write2buff(COM[COM2_ID], tem_alter);
+ 225   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 226   1        TX_write2buff(COM[COM2_ID], tem_stop);
+ 227   1        // TX_write2buff(COM[COM2_ID], 0x00);
+ 228   1        // TX_write2buff(COM[COM2_ID], time_feed_stop);
+ 229   1        // TX_write2buff(COM[COM2_ID], 0x00);
+ 230   1        // TX_write2buff(COM[COM2_ID], feed_lack_signal);
+ 231   1      }
+ 232          
+ 233          void updata_data_from_dwscreen()
+ 234          {
+ 235   1        time_fan_delay_stop_set = time_fan_delay_stop;
+ 236   1        time_fan_delay_full_set = time_fan_delay_full;
+ 237   1        // time_feed_suction_set = time_feed_suction;
+ 238   1        // time_feed_discharge_set = time_feed_discharge;
+ 239   1        time_feed_intercept_set = time_feed_intercept;
+ 240   1        time_spray_wash_set = time_spray_wash;
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 5   
+
+ 241   1        time_spray_wash_between_set = time_spray_wash_between;
+ 242   1        counter_for_spray_wash_set = counter_for_spray_wash;
+ 243   1        // time_feed_lack_set = time_feed_lack;
+ 244   1        // counter_for_lack_alter_set = counter_for_lack_alter;
+ 245   1        // time_feed_stop_set = time_feed_stop;
+ 246   1        // feed_lack_signal_set = feed_lack_signal;
+ 247   1        time_spray_wash_before_stop_set = time_spray_wash_before_stop;
+ 248   1        time_spray_wash_between_before_stop_set = time_spray_wash_between_before_stop;
+ 249   1        // if(!feed_lack_signal)
+ 250   1       //        clean_feed_lack_counter();
+ 251   1      }
+ 252          
+ 253          
+ 254          
+ 255          bool update_data_should = NO;
+ 256          void dw_data_reading(u8 *response) {
+ 257   1          time_spray_wash = response[8];
+ 258   1          time_spray_wash_between = response[10];
+ 259   1          counter_for_spray_wash = response[12];
+ 260   1          // time_feed_suction = response[14];
+ 261   1          time_feed_intercept = response[14];
+ 262   1            time_spray_wash_before_stop = response[16];
+ 263   1            time_spray_wash_between_before_stop = response[18];
+ 264   1          // counter_for_lack_alter = response[22];
+ 265   1            time_fan_delay_stop = response[20];
+ 266   1          time_fan_delay_full = response[22];
+ 267   1          tem_alter = response[24];
+ 268   1          tem_stop = response[26];
+ 269   1          // time_feed_stop = response[28];
+ 270   1          // feed_lack_signal = response[34];
+ 271   1          // 实时更新
+ 272   1          tem_alter_set = tem_alter;
+ 273   1          tem_stop_set = tem_stop;
+ 274   1      
+ 275   1          update_data_should = true;
+ 276   1      }
+ 277          
+ 278          
+ 279          static bool dw_wf_callback(u8 *response, int len) {
+ 280   1      //  dw_data_reading(response, len);
+ 281   1        finish_workflow_before_next_flow(DW_READ_WORKFLOW_ID);
+ 282   1        return true;
+ 283   1      }
+*** WARNING C280 IN LINE 279 OF dwscreen.c: 'response': unreferenced local variable
+*** WARNING C280 IN LINE 279 OF dwscreen.c: 'len': unreferenced local variable
+ 284          
+ 285          static void dw_wf_start() {
+ 286   1        dw_flow_read.processing = DW_TIMEOUT;
+ 287   1        dw_flow_read.task_id = 0;
+ 288   1        continue_workflow_at_next_round(DW_READ_WORKFLOW_ID);
+ 289   1      }
+ 290          
+ 291          static void dw_wf_clean() {
+ 292   1        last_dw_read = DW_READ_NONE;
+ 293   1      }
+ 294          
+ 295          static void dw_wf_go(u8 task_id) {
+ 296   1          finish_workflow_before_next_flow(DW_READ_WORKFLOW_ID);
+ 297   1      }
+*** WARNING C280 IN LINE 295 OF dwscreen.c: 'task_id': unreferenced local variable
+ 298          
+ 299          
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 6   
+
+ 300          int dw_cache_response(char xdata *r) {
+ 301   1        u8 len = COM2.RX_Cnt;
+ 302   1        memset(cached_response, 0, RESP_BUF_SIZE);
+ 303   1        if (len > RESP_BUF_SIZE) return 0;
+ 304   1        // copy r -> cached_response until [find "\0" or finish r]
+ 305   1        // CRASH if: sizeof(r) > sizeof(cached_response)
+ 306   1        memcpy(cached_response, r, sizeof(char) * len);
+ 307   1        return len;
+ 308   1      }
+ 309          
+ 310          
+ 311          // void clean_feed_lack_counter()
+ 312          // {
+ 313          //  counter_for_feed_lack = 0;
+ 314          //  send_counter_for_feed_lack_to_dwscreen(counter_for_feed_lack);
+ 315          //  alert_for_system &= ~ALTER_LACK_FEED;
+ 316          //  clean_feed_lack_record();
+ 317          // }
+ 318          
+ 319          void system_protect(u8 *r)
+ 320          {
+ 321   1          u8 year, month, day;
+ 322   1          year = (r[6] >> 4) * 10 + (r[6] & 0x0F);
+ 323   1          month = (r[7] >> 4) * 10 + (r[7] & 0x0F);
+ 324   1          day = (r[8] >> 4) * 10 + (r[8] & 0x0F);
+ 325   1          if(time_year > year){
+ 326   2            sigal_available = 0;
+ 327   2          } else if(time_year == year){
+ 328   2            if(time_month > month){
+ 329   3              sigal_available = 0;
+ 330   3            } else if(time_month == month){
+ 331   3              if(time_day > day){
+ 332   4                sigal_available = 0;
+ 333   4              } else {
+ 334   4                sigal_available = 1;
+ 335   4              }
+ 336   3            } else {
+ 337   3              sigal_available = 1;
+ 338   3            } 
+ 339   2          } else {
+ 340   2            sigal_available = 1;
+ 341   2          }
+ 342   1          TX_write2buff(COM[COM1_ID], r[6]);
+ 343   1          TX_write2buff(COM[COM1_ID], r[7]);
+ 344   1          TX_write2buff(COM[COM1_ID], r[8]);
+ 345   1          TX_write2buff(COM[COM1_ID], time_year);
+ 346   1          TX_write2buff(COM[COM1_ID], time_month);
+ 347   1          TX_write2buff(COM[COM1_ID], time_day);
+ 348   1          TX_write2buff(COM[COM1_ID], sigal_available);
+ 349   1      }
+ 350          
+ 351          
+ 352          
+ 353          void dw_dispatch_response(u8 xdata *r, int len) {
+ 354   1      
+ 355   1        if(r[3] == 0x83)
+ 356   1        {
+ 357   2          switch(r[5])
+ 358   2          {
+ 359   3            case COMMAND_CANCLE_AND_BACK:
+ 360   3              count_down_cancel(&system_back_home);
+ 361   3              page_init = 0;
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 7   
+
+ 362   3              // page_back_home();
+ 363   3              break;
+ 364   3            case COMMAND_PW_ADM_ACK:
+ 365   3              page_password_admin_input_handle();
+ 366   3              reload_system_back_home();
+ 367   3              page_init = 1;
+ 368   3              break;
+ 369   3            case COMMAND_PW_SET_ACK:
+ 370   3              page_password_setting_handle();
+ 371   3              reload_system_back_home();
+ 372   3              page_init = 1;
+ 373   3              break;
+ 374   3            case COMMAND_PW_RESET:
+ 375   3              password_to_init();
+ 376   3              break;
+ 377   3            case COMMAND_PW_MD_ACK:
+ 378   3              modify_password();
+ 379   3              reload_system_back_home();
+ 380   3              page_init = 1;
+ 381   3              break;
+ 382   3            case COMMAND_PA_RESET:
+ 383   3              setting_to_init();
+ 384   3              break;   
+ 385   3            case COMMAND_PA_MD_ACK:
+ 386   3              update_setting();
+ 387   3              break;     
+ 388   3            case COMMAND_BEEP_CONTROL:
+ 389   3            // 解除当次报警  
+ 390   3              if(r[8])
+ 391   3                INT_PROC |= ALTER_BEEP_CLOSE_DUTY;
+ 392   3            // 重新开始报警
+ 393   3              else
+ 394   3              {
+ 395   4                // 料满不需要报警
+ 396   4                if(alert_for_system & 0x1D)
+ 397   4                  INT_PROC |= ALTER_BEEP_DUTY;
+ 398   4              }
+ 399   3              page_init = 0;
+ 400   3              break;   
+ 401   3            case COMMAND_START:
+ 402   3              start_fan_signal = r[8];
+ 403   3              system_start_or_not();
+ 404   3              page_init = 0;
+ 405   3              break;
+ 406   3            case COMMAND_HELP:
+ 407   3              reload_system_back_home();
+ 408   3              page_init = 1;
+ 409   3              break;
+ 410   3            case COMMAND_INQUIRY:
+ 411   3              // page_to_param_inqury();
+ 412   3              reload_system_back_home();
+ 413   3              page_init = 1;
+ 414   3              break; 
+ 415   3            case COMMAND_NEXT_PAGE:
+ 416   3              reload_system_back_home();
+ 417   3              page_init = 1;
+ 418   3              break; 
+ 419   3            case COMMAND_LAST_PAGE:
+ 420   3              reload_system_back_home();
+ 421   3              page_init = 1;
+ 422   3              break;
+ 423   3            case COMMAND_PASSWORD_MANAGEMENT:
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 8   
+
+ 424   3              page_password_admin_handle();
+ 425   3              reload_system_back_home();
+ 426   3              page_init = 1;
+ 427   3              break;
+ 428   3            case COMMAND_LOGIN_ON:
+ 429   3              login_on_setting_handle();
+ 430   3              reload_system_back_home();
+ 431   3              page_init = 1;
+ 432   3              break;
+ 433   3            case COMMAND_LOGIN_OUT:
+ 434   3              login_off_current_user();
+ 435   3              page_init = 0;
+ 436   3              break;
+ 437   3            case ADDR_PW_INPUT:
+ 438   3              password = r[7] << 24 | r[8] << 16 | r[9] << 8 | r[10];
+ 439   3              page_init = 1;
+ 440   3              break;
+ 441   3            case ADDR_PW_ADMIN_INPUT:
+ 442   3              password_admin_input = r[7] << 24 | r[8] << 16 | r[9] << 8 | r[10];
+ 443   3              password_guest_input = r[11] << 24 | r[12] << 16 | r[13] << 8 | r[14];
+ 444   3              page_init = 1;
+ 445   3              break;
+ 446   3            case COMMAND_TEST_SPRAY_WASH:
+ 447   3              test_spray_wash_process(r[8]);
+ 448   3              reload_system_back_home();
+ 449   3              page_init = 1;
+ 450   3              break;
+ 451   3            case COMMAND_TEST_SUCTION:
+ 452   3              test_suction_process(r[8]);
+ 453   3              reload_system_back_home();
+ 454   3              page_init = 1;
+ 455   3              break;
+ 456   3            case COMMAND_TEST_INTERCEPT:
+ 457   3              test_intercept_process(r[8]);
+ 458   3              reload_system_back_home();
+ 459   3              page_init = 1;
+ 460   3              break;
+ 461   3            case COMMAND_TEST_BEEP:
+ 462   3              test_beep_process(r[8]);
+ 463   3              reload_system_back_home();
+ 464   3              page_init = 1;
+ 465   3              break;
+ 466   3            case COMMAND_TEST_FAN:
+ 467   3              test_fan_process(r[8]);
+ 468   3              reload_system_back_home();
+ 469   3              page_init = 1;
+ 470   3              break;
+ 471   3            case COMMAND_TEST_REST:
+ 472   3              test_rest_process();
+ 473   3              reload_system_back_home();
+ 474   3              page_init = 1;
+ 475   3              break;
+ 476   3            case  COMMAND_TEST_BY_HAND:
+ 477   3              // page_to_test_hand();
+ 478   3              reload_system_back_home();
+ 479   3              page_init = 1;
+ 480   3              break;
+ 481   3            case  COMMAND_RECORD_INQURY:
+ 482   3              // page_to_record_inqury();
+ 483   3              reload_system_back_home();
+ 484   3              page_init = 1;
+ 485   3              break;
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 9   
+
+ 486   3            case INDEX_FOR_ADMIN_SET:
+ 487   3              dw_data_reading(r);
+ 488   3              // 机器没有运行直接更新
+ 489   3              if(!start_fan_signal)
+ 490   3                updata_data_from_dwscreen();
+ 491   3              page_init = 1;
+ 492   3              break;
+ 493   3            case COMMAND_TEST_CANCLE:
+ 494   3              test_rest_process();
+ 495   3              page_init = 0;
+ 496   3              break;
+ 497   3            case COMMAND_REST_STATUS:
+ 498   3            // clean feed_lack history
+ 499   3              // counter_for_feed_lack = 0;
+ 500   3             //   send_counter_for_feed_lack_to_dwscreen(counter_for_feed_lack);
+ 501   3             //   alert_for_system &= ~ALTER_LACK_FEED;
+ 502   3              clean_feed_lack_record();
+ 503   3              break;
+ 504   3            case COMMAND_CANCLE_PW_INPUT:
+ 505   3              password_input_cancle();
+ 506   3              break;
+ 507   3            case COMMAND_CANCLE_PW_MD:
+ 508   3              password_modify_cancle();
+ 509   3              break;
+ 510   3            case COMMAND_CANCLE_PA_INPUT:
+ 511   3              param_set_cancle();
+ 512   3              break;
+ 513   3            case COMMAND_TIME_SET:
+ 514   3              reload_system_back_home();
+ 515   3              page_init = 1;
+ 516   3              break;
+ 517   3            case COMMAND_FEED_LACK_CONTROL:
+ 518   3              // feed_lack_signal = r[8];
+ 519   3              // store_all_para();
+ 520   3              // update_data_should = true;
+ 521   3              break;
+ 522   3            case COMMAND_VALIABLE_CONTROL:
+ 523   3              reload_system_back_home();
+ 524   3              // TX_write2buff(&COM1, r[8]);
+ 525   3              if(!r[8])
+ 526   3              // 取消设置
+ 527   3                reset_available_set();
+ 528   3              else
+ 529   3              // 使用设置
+ 530   3                update_avaiable_deadline();
+ 531   3              break;
+ 532   3            case INDEX_FOR_DEADLINE_SET:
+ 533   3              store_available_set(r);
+ 534   3              break;
+ 535   3            case COMMAND_VALIABLE_ACK:
+ 536   3              // 返回首页、注销登陆
+ 537   3              every_minute_no_identify_call_back();
+ 538   3              page_init = 0;
+ 539   3              break;
+ 540   3            default:
+ 541   3              break;
+ 542   3          }             
+ 543   2        }
+ 544   1        else if(r[3] == 0x81)
+ 545   1        {
+ 546   2          switch(r[4])
+ 547   2          {
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 10  
+
+ 548   3            case REGISTER_TIME:
+ 549   3            {
+ 550   4              if(!record){
+ 551   5                system_protect(r);
+ 552   5                page_back_home();
+ 553   5              }
+ 554   4              else
+ 555   4              {
+ 556   5                u8 i, record_code, mask = 0x01;
+ 557   5                record_code = record;
+ 558   5                for(i = 0; i < 5; i++)
+ 559   5                {
+ 560   6                  if(record_code & mask)
+ 561   6                  {
+ 562   7                  // 报警记录发送
+ 563   7                    TX_write2buff(COM[COM2_ID], 0x5A);
+ 564   7                    TX_write2buff(COM[COM2_ID], 0xA5);
+ 565   7                    TX_write2buff(COM[COM2_ID], 0x09);
+ 566   7                    TX_write2buff(COM[COM2_ID], 0x82);
+ 567   7                    TX_write2buff(COM[COM2_ID], 0x00);
+ 568   7                    TX_write2buff(COM[COM2_ID], 0x80 + i * 6);
+ 569   7                    TX_write2buff(COM[COM2_ID], r[6]);
+ 570   7                    TX_write2buff(COM[COM2_ID], r[7]);
+ 571   7                    TX_write2buff(COM[COM2_ID], r[8]);
+ 572   7                    TX_write2buff(COM[COM2_ID], r[10]);
+ 573   7                    TX_write2buff(COM[COM2_ID], r[11]);
+ 574   7                    TX_write2buff(COM[COM2_ID], r[12]);
+ 575   7                  }
+ 576   6                  mask <<= 1;
+ 577   6                }
+ 578   5      
+ 579   5              }
+ 580   4              break;
+ 581   4            }
+ 582   3            case REGISTER_PAGE:
+ 583   3              page = r[7]; 
+ 584   3              page_init = 1;
+ 585   3              break;
+ 586   3            default:
+ 587   3              break;
+ 588   3          }
+ 589   2        }
+ 590   1      }
+*** WARNING C280 IN LINE 353 OF dwscreen.c: 'len': unreferenced local variable
+ 591          
+ 592          void Delay5ms()   //@24.000MHz
+ 593          {
+ 594   1        unsigned char i, j;
+ 595   1      
+ 596   1        i = 117;
+ 597   1        j = 184;
+ 598   1        do
+ 599   1        {
+ 600   2          while (--j);
+ 601   2        } while (--i);
+ 602   1      }
+ 603          
+ 604          
+ 605          void dw_screen_init()
+ 606          {
+ 607   1        display_all_para(INDEX_FOR_INQUIRY);
+ 608   1        Delay5ms();
+C51 COMPILER V9.52.0.0   DWSCREEN                                                          11/08/2016 20:38:40 PAGE 11  
+
+ 609   1        display_all_para(INDEX_FOR_ADMIN_SET);
+ 610   1      }
+ 611          
+ 612          
+ 613          void dw_init() {
+ 614   1        dw_flow_read.uart_id = DW_UART_ID;
+ 615   1        dw_flow_read.workflow_id = DW_READ_WORKFLOW_ID;
+ 616   1        dw_flow_read.task_id = TASK_ID_NONE;
+ 617   1        dw_flow_read.processing = 0;
+ 618   1        dw_flow_read.callback = dw_wf_callback;
+ 619   1        dw_flow_read.start = dw_wf_start;
+ 620   1        dw_flow_read.go = dw_wf_go;
+ 621   1        dw_flow_read.clean = dw_wf_clean;
+ 622   1        dw_flow_read.timeout = NULL;
+ 623   1        last_dw_read = DW_READ_NONE;
+ 624   1        workflow_registration[DW_READ_WORKFLOW_ID] = &dw_flow_read;
+ 625   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   3375    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    183      28
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  4 WARNING(S),  0 ERROR(S)

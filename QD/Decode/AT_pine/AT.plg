@@ -1,0 +1,26 @@
+<html>
+<body>
+<pre>
+<h1>礦ision Build Log</h1>
+<h2>Project:</h2>
+D:\项目材料\Pro_Wu\QDtech\海螺灯_程序_音频\AT_海螺灯普通版\AT.uvproj
+Project File Date:  08/16/2015
+
+<h2>Output:</h2>
+Rebuild target 'Target 1'
+assembling STARTUP.A51...
+compiling bk8000l.c...
+compiling main.c...
+compiling usart.c...
+linking...
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?DELAY100MS?BK8000L
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_USART_RX_BLOCK?USART
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_USART_FINISH_RX?USART
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?CO?USART
+Program Size: data=137.5 xdata=0 code=3619
+creating hex file from "AT"...
+"AT" - 0 Error(s), 4 Warning(s).

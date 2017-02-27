@@ -1,0 +1,93 @@
+C51 COMPILER V9.52.0.0   SYNC                                                              10/30/2016 15:12:23 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SYNC
+OBJECT MODULE PLACED IN sync.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE sync.c OMF2 ROM(SMALL) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "sync.h"
+   2          #include "task.h"
+   3          #include "utils.h"
+   4          #include "power.h"  
+   5          
+   6          void sync_with_alert() // 2ms @24.000MHz
+   7          {
+   8   1          unsigned char i, j;
+   9   1          i = 47;
+  10   1          j = 174;
+  11   1          do
+  12   1          {
+  13   2              while (--j);
+  14   2          } while (--i);
+  15   1      }
+  16          
+  17          // cal_timer
+  18          // 20ms
+  19          void init_system_tick() {
+  20   1          Timer0_12T();
+  21   1          Timer0_AsTimer();
+  22   1          Timer0_16bitAutoReload();
+  23   1          T0_Load(0xD8F0);
+  24   1          Timer0_InterruptEnable();
+  25   1          Timer0_Run();
+  26   1      }
+  27          
+  28          
+  29          // driver_timer
+  30          void init_driver_timer() {
+  31   1          Timer2_Stop();      //Timer stop
+  32   1          Timer2_AsTimer();   //Timer2 set As Timer
+  33   1          Timer2_12T() ;       //Timer2 set as 1T mode
+  34   1          T2L = 0xEC;         //设定定时初值
+  35   1          T2H = 0xFF;         //设定定时初值
+  36   1          Timer2_InterruptEnable(); //禁止中断
+  37   1          // Timer2_Run();      //Timer stop
+  38   1      }
+  39          
+  40          // 25 = 500ms
+  41          u8  fre_cal_interval = FRE_CAL_TASK_INTERVAL;
+  42          // 
+  43          void tm0_isr() interrupt TIMER0_VECTOR  using 2
+  44          {    
+  45   1          if (!--fre_cal_interval) {
+  46   2              INT_PROC |= FRE_CAL_DUTY;
+  47   2              fre_cal_interval = FRE_CAL_TASK_INTERVAL;
+  48   2              // CHAR_DRI = ~CHAR_DRI;
+  49   2          }
+  50   1      
+  51   1      }
+  52          
+  53          
+  54          void tm2_isr() interrupt TIMER2_VECTOR using 0
+  55          {
+C51 COMPILER V9.52.0.0   SYNC                                                              10/30/2016 15:12:23 PAGE 2   
+
+  56   1          // 充电有效进中断、载入无效时间
+  57   1          if(CHAR_DRI){
+  58   2              driver_timer_disable();
+  59   2          // 充电无效进中断、载入有效时间
+  60   2          } else {
+  61   2              driver_timer_enable();
+  62   2          }
+  63   1          // CHAR_DRI = ~CHAR_DRI;
+  64   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    109    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

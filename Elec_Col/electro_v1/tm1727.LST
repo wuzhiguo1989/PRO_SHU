@@ -1,0 +1,161 @@
+C51 COMPILER V9.52.0.0   TM1727                                                            03/03/2016 19:04:47 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE TM1727
+OBJECT MODULE PLACED IN tm1727.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE tm1727.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          
+   2          #include "tm1727.h"
+   3          #include "intrins.h"
+   4          #include "share.h"
+   5          #include "jl17467pqw.h"
+   6          
+   7          #define display_delay() _nop_()
+   8          
+   9          static u8 code clean_code[20]={0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+             -0x00,0x00,0x00,0x00,0x00};
+  10          /********************Start函数*************************/
+  11          //开始信号
+  12          static void Tm1727_Start()                   
+  13          {
+  14   1        SCL = 1;
+  15   1        display_delay();
+  16   1        SDA = 1;
+  17   1        display_delay();
+  18   1        SDA = 0;
+  19   1        display_delay();
+  20   1      }
+  21          
+  22          
+  23          /********************Stop函数*************************/
+  24          //停止信号
+  25          static void Tm1727_Stop()          
+  26          {
+  27   1        SCL = 1;
+  28   1        display_delay();
+  29   1        SDA = 0;
+  30   1        display_delay();
+  31   1        SDA = 1;
+  32   1        display_delay();
+  33   1      }
+  34          
+  35          
+  36          /********************ACK函数*************************/
+  37          //应答信号
+  38          static void Tm1727_Ack()                  
+  39          {
+  40   1        while(SDA);              //第8个时钟后等待芯片把总线拉低
+  41   1        display_delay();
+  42   1        SCL = 1;                 //主机给一个上升沿
+  43   1        display_delay();
+  44   1        SCL = 0;
+  45   1        display_delay();
+  46   1      }
+  47          
+  48          
+  49          /***************发送8bit数据，从低位开始**************/
+  50          //写一字节数据程序
+  51          static void Tm1727_Write_Byte(unsigned char dat)      
+  52          {
+  53   1        u8 i;
+  54   1        for(i = 0;i < 8;i++)
+C51 COMPILER V9.52.0.0   TM1727                                                            03/03/2016 19:04:47 PAGE 2   
+
+  55   1        {
+  56   2          if(dat & 0x01)     //检测SDA电平
+  57   2            SDA = 1;
+  58   2          else 
+  59   2            SDA = 0;
+  60   2          dat>>=1;
+  61   2          display_delay();
+  62   2          SCL = 0;           //SCL上升沿数据被写入
+  63   2          display_delay();
+  64   2          SCL = 1;
+  65   2          display_delay();
+  66   2          SCL = 0;
+  67   2        }
+  68   1      }
+  69          
+  70          // 写入20个RAM地址的数据
+  71          static void Tm1727_Write_Data(u8 *ram_code) 
+  72          {
+  73   1        u8 i;
+  74   1        for(i=0;i<20;i++)
+  75   1        {
+  76   2          Tm1727_Write_Byte(*ram_code);
+  77   2          ram_code++;
+  78   2          Tm1727_Ack();
+  79   2        } 
+  80   1      }
+  81          
+  82          
+  83          
+  84          /*****************发送显示控制命令*****************/
+  85          //发送显示控制命令
+  86          static void Tm1727_Send_Display_cmd(u8 dat)                   
+  87          {
+  88   1        Tm1727_Start();           //开始信号
+  89   1        Tm1727_Write_Byte(dat);   //写入一个8bit的数据，低位在前高位在后
+  90   1        Tm1727_Ack();             //应答信号
+  91   1        Tm1727_Stop();            //停止信号
+  92   1      }
+  93          
+  94          
+  95          static void Tm1727_Send_Start_Address(u8 add)
+  96          {
+  97   1        Tm1727_Start();
+  98   1        Tm1727_Write_Byte(add);    //起始地址
+  99   1        Tm1727_Ack();
+ 100   1      }
+ 101          
+ 102          /***************设置位**************/
+ 103          void Tm1727_Local_Set_Bit(const u8 line, const u8 column, const u8 value) {
+ 104   1        if(!value)
+ 105   1          display_code[line] &= ~(1 << column);
+ 106   1        else
+ 107   1          display_code[line] |= (1 << column);
+ 108   1      }
+ 109          
+ 110          void display_clean()
+ 111          {
+ 112   1        Tm1727_Send_Start_Address(RAM_START_ADDRESS);
+ 113   1        Tm1727_Write_Data(clean_code);
+ 114   1        Tm1727_Stop();
+ 115   1        Tm1727_Send_Display_cmd(0x27);    //发送显示控制命令：正常模式，LINE模式，1/3偏压，5V
+ 116   1        jt17467pqw_set_separator(1);
+C51 COMPILER V9.52.0.0   TM1727                                                            03/03/2016 19:04:47 PAGE 3   
+
+ 117   1      }
+ 118          
+ 119          
+ 120          /***************显示函数**************/
+ 121          void display(u8 add, u8 *ram_code)
+ 122          {
+ 123   1        Tm1727_Send_Start_Address(add);
+ 124   1        Tm1727_Write_Data(ram_code);
+ 125   1        Tm1727_Stop();
+ 126   1        Tm1727_Send_Display_cmd(0x27);    //发送显示控制命令：正常模式，LINE模式，1/3偏压，5V
+ 127   1      }   
+ 128            
+ 129          
+ 130          
+ 131          
+ 132          
+ 133          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    203    ----
+   CONSTANT SIZE    =     20    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

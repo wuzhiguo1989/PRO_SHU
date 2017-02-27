@@ -1,0 +1,155 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              03/03/2016 19:04:47 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "stc15wxxxx.h"
+   2          #include "tm1727.h"
+   3          #include "jl17467pqw.h"
+   4          #include "share.h"
+   5          #include "sync.h"
+   6          #include "task.h"
+   7          #include "light.h"
+   8          #include "adc.h"
+   9          #include "time.h"
+  10          #include "control.h"
+  11          #include "signal.h"
+  12          #include "beep.h"
+  13          #include "utils.h"
+  14          
+  15          void main()
+  16          {
+  17   1        display_clean();
+  18   1        
+  19   1        EA = 0;
+  20   1      
+  21   1        jt17467pqw_set_power_linked(1);
+  22   1      
+  23   1        light_io_init();
+  24   1      
+  25   1        init_alert();
+  26   1      
+  27   1        time_init();
+  28   1      
+  29   1        light_init();
+  30   1      
+  31   1        init_adc();
+  32   1      
+  33   1        control_init();
+  34   1      
+  35   1        init_control_signal();
+  36   1      
+  37   1        init_system_tick();
+  38   1      
+  39   1        init_system_tick1();
+  40   1      
+  41   1        init_beep_io();
+  42   1      
+  43   1        speak_init_params();
+  44   1      
+  45   1        init_speed_driver();
+  46   1      
+  47   1        EA =1;
+  48   1        
+  49   1          while(1)
+  50   1          {
+  51   2          reset_watch_dog();
+  52   2          // 睡眠
+  53   2          if(speak_mode == mute && state_current != NORMAL_STATE && state_current != KEY_NORMAL_STATE && !enter_lo
+             -ck_state_2s && !enter_lock_state_15s && !speak_mode_set) 
+  54   2          {
+C51 COMPILER V9.52.0.0   MAIN                                                              03/03/2016 19:04:47 PAGE 2   
+
+  55   3            display_clean();
+  56   3            PCON = 0x02;
+  57   3          }
+  58   2              
+  59   2          // 遥控器
+  60   2              if (INT_PROC & SIGNAL_RECEIVE_DUTY) {
+  61   3                handle_control_signal();
+  62   3                  INT_PROC &= ~SIGNAL_RECEIVE_DUTY;
+  63   3                  continue;
+  64   3              }
+  65   2      
+  66   2              
+  67   2              
+  68   2          if(state_current == NORMAL_STATE || state_current == KEY_NORMAL_STATE)
+  69   2          {
+  70   3            
+  71   3      
+  72   3            // 控制器功率
+  73   3            if (INT_PROC & CONTROL_RECEIVE_DUTY) {
+  74   4              control_process_received(); 
+  75   4                  INT_PROC &= ~CONTROL_RECEIVE_DUTY;
+  76   4              continue;
+  77   4            }
+  78   3            // 10ms 刷新一次按键
+  79   3            if (INT_PROC & KEY_SCAN_DUTY) {
+  80   4              detect_buzzer_io();
+  81   4              key_scan_task();
+  82   4              //检测钥匙开关
+  83   4              key_on_scan();
+  84   4                    INT_PROC &= ~KEY_SCAN_DUTY;
+  85   4                    continue;
+  86   4                }
+  87   3                // 1s同步一次时间
+  88   3              if (INT_PROC & TIME_SYNC_DUTY) {
+  89   4              time_sync();
+  90   4              INT_PROC &= ~TIME_SYNC_DUTY;
+  91   4                    continue;
+  92   4                }
+  93   3      
+  94   3      
+  95   3                // 20ms 刷新一次屏幕
+  96   3              if (INT_PROC & LCD_DISPLAY_DUTY) {
+  97   4              display(RAM_START_ADDRESS,display_code);
+  98   4                    INT_PROC &= ~LCD_DISPLAY_DUTY;
+  99   4                    continue;
+ 100   4                }
+ 101   3                if(INT_PROC & SPEED_CAL_DUTY){
+ 102   4              speed_cal_display();
+ 103   4              INT_PROC &= ~SPEED_CAL_DUTY;
+ 104   4                  continue;
+ 105   4                }
+ 106   3      
+ 107   3                // 250ms计算一次速度、温度、电池电压
+ 108   3                if(INT_PROC & ADC_DUTY){
+ 109   4                  temperature_detected();
+ 110   4              battery_detected();
+ 111   4                  INT_PROC &= ~ADC_DUTY;
+ 112   4                  continue;
+ 113   4                }
+ 114   3      
+ 115   3                // 10ms 刷新一次按键
+ 116   3            if (INT_PROC & KEY_SCAN_DUTY) {
+C51 COMPILER V9.52.0.0   MAIN                                                              03/03/2016 19:04:47 PAGE 3   
+
+ 117   4              detect_buzzer_io();
+ 118   4              key_scan_task();
+ 119   4              //检测钥匙开关
+ 120   4              key_on_scan();
+ 121   4                    INT_PROC &= ~KEY_SCAN_DUTY;
+ 122   4                    continue;
+ 123   4                }
+ 124   3              }
+ 125   2      
+ 126   2        }
+ 127   1      } 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    286    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

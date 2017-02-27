@@ -1,0 +1,85 @@
+C51 COMPILER V9.52.0.0   DEBUG                                                             02/29/2016 20:28:52 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE DEBUG
+OBJECT MODULE PLACED IN debug.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE debug.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "debug.h"
+   2          #include "usart.h"
+   3          #include "stdio.h"
+   4          
+   5          void debug_init() {
+   6   1        S3_8bit();
+   7   1        S3_BRT_UseTimer2();
+   8   1          S3_USE_P00P01();
+   9   1          
+  10   1          // S3_Int_Enable();
+  11   1          S3_Int_Disable();
+  12   1          S3_RX_Enable();
+  13   1      
+  14   1          USART_Share_Timer2();
+  15   1      
+  16   1          SET_TI3();
+  17   1      }
+  18          
+  19          // /*----------------------------
+  20          // UART3 中断服务程序
+  21          // -----------------------------*/
+  22          // void Uart3() interrupt UART3_VECTOR using 1
+  23          // {
+  24          //     if (S3CON & S3RI)
+  25          //     {
+  26          //         S3CON &= ~S3RI;         //清除S3RI位
+  27          //     }
+  28          //     if (S3CON & S3TI)
+  29          //     {
+  30          //         S3CON &= ~S3TI;         //清除S3TI位
+  31          //         busy = 0;               //清忙标志
+  32          //     }
+  33          // }
+  34          
+  35          char putchar (char c)
+  36          {
+  37   1        while (!TI3);  /* wait until transmitter ready */
+  38   1        CLR_TI3();
+  39   1        S3BUF = c;      /* output character */
+  40   1        return (c);
+  41   1      }
+  42          
+  43          
+  44          //-----------------------------------------------
+  45          char _getkey (void)
+  46          {
+  47   1        char c;
+  48   1      
+  49   1        while (!RI3);  /* wait for a character */
+  50   1        c = S3BUF;
+  51   1        CLR_RI3();       /* clear receive interrupt bit */
+  52   1      
+  53   1        return (c);
+  54   1      }
+  55          
+C51 COMPILER V9.52.0.0   DEBUG                                                             02/29/2016 20:28:52 PAGE 2   
+
+  56          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     58    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

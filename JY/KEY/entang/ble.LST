@@ -1,0 +1,484 @@
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE BLE
+OBJECT MODULE PLACED IN ble.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE ble.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "ble.h"
+   2          #include "string.h"
+   3          #include "usart.h"
+   4          #include "task.h"
+   5          #include "config.h"
+   6          #include "stdio.h"
+   7          #include "share.h"
+   8          #include "sync.h"
+   9          #include "utils.h"
+  10          #include "entang.h"
+  11          
+  12          #define ble_send_command(x)   PrintString1(x)
+  13          #define ble_recieve_data(x)   GetString1(x)
+  14          #define ble_send_data(x)      PrintString2(x)
+  15          
+  16          static code unsigned char const BLE_IND_LINKED[] = "Connected\r\n";
+  17          static code unsigned char const BLE_IND_ADVERTISING[] = "Advertising\r\n";
+  18          static code unsigned char const BLE_IND_UNLINKED[] = "Disconnected\r\n";
+  19          static code unsigned char const BLE_IND_LINKED_TIME_OUT[] = "Timed Out\r\n";
+  20          static code unsigned char const BLE_IND_INIT[] = "Initialized\r\n";
+  21          static code unsigned char const BLE_IND_SUCCESS_CHANGE_BLE_NAME[] = "OK";
+  22          static code unsigned char const BLE_IND_CONNECT_BREAK[] = "Connection is broken";
+  23          
+  24          static volatile u8 xdata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲
+  25          static volatile u8 xdata RX1_Buffer[COM_RX1_Lenth];    //接收缓冲
+  26          
+  27          u8 received_for_request = 0;
+  28          u8 received_for_ble_response = 0;
+  29          
+  30          
+  31          void init_uart()
+  32          {
+  33   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+  34   1          COM1.RX_Cnt = 0;
+  35   1          COM1.B_RX_OK = FALSE;
+  36   1          received_for_request = 0;
+  37   1          received_for_ble_response = 0;
+  38   1      }
+  39          
+  40          
+  41          void Delay2000ms()      //@24.000MHz
+  42          {
+  43   1          unsigned char i, j, k;
+  44   1      
+  45   1          _nop_();
+  46   1          _nop_();
+  47   1          i = 183;
+  48   1          j = 100;
+  49   1          k = 225;
+  50   1          do
+  51   1          {
+  52   2              do
+  53   2              {
+  54   3                  while (--k);
+  55   3              } while (--j);
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 2   
+
+  56   2          } while (--i);
+  57   1      }
+  58          
+  59          void Delay50ms()        //@24.000MHz
+  60          {
+  61   1          unsigned char i, j, k;
+  62   1      
+  63   1          _nop_();
+  64   1          _nop_();
+  65   1          i = 5;
+  66   1          j = 144;
+  67   1          k = 71;
+  68   1          do
+  69   1          {
+  70   2              do
+  71   2              {
+  72   3                  while (--k);
+  73   3              } while (--j);
+  74   2          } while (--i);
+  75   1      }
+  76          
+  77          void TX1_write2buff(const u8 dat) 
+  78          {
+  79   1          TX1_Buffer[COM1.TX_write] = dat;        // 装发送缓冲
+  80   1          if(++COM1.TX_write >= COM_TX1_Lenth)    
+  81   1              COM1.TX_write = 0;
+  82   1      
+  83   1          if(COM1.B_TX_busy == 0)                 // 空闲
+  84   1          {  
+  85   2              COM1.B_TX_busy = 1;                 // 标志忙
+  86   2              TI = 1;                             // 触发发送中断
+  87   2          }
+  88   1      }
+  89          
+  90          // BLE DUTY: 
+  91          // 1. read buffer 
+  92          // 2. in case recieve new while reading, all new SBUF direct to RX1_Spare
+  93          // 3. when finish reading, RX1_Spare copy to RX1_Buffer, while new SBUF to index > RX1_Spare_Cnt
+  94          // 4. new handle buffer will start after prev copy is over
+  95          static void GetString1(u8 *received) {
+  96   1          if (COM1.RX_Cnt) 
+  97   1              memcpy(received, RX1_Buffer, COM1.RX_Cnt);
+  98   1              received[COM1.RX_Cnt] = '\0';
+  99   1          COM1.RX_Cnt = 0;
+ 100   1          COM1.B_RX_OK = FALSE;
+ 101   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+ 102   1      }
+ 103          
+ 104          void PrintString1(u8 *puts)
+ 105          {
+ 106   1          for (; *puts != 0;  puts++)  TX1_write2buff(*puts);     //遇到停止符0结束
+ 107   1      }
+ 108          
+ 109          static void PrintString2(u8 *puts)
+ 110          {
+ 111   1          u8 i;
+ 112   1          for(i = 0 ; i < 20; i++)
+ 113   1               TX1_write2buff(puts[i]);
+ 114   1           Delay50ms();
+ 115   1      }
+ 116          
+ 117          void BLE_Enter_Adversting()
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 3   
+
+ 118          {
+ 119   1          // BT_RTS = 0;
+ 120   1          // sync_with_alert();
+ 121   1          // ble_send_command("AT+SNAM+MCCSCYCS39\r\n");
+ 122   1          // Delay50ms();
+ 123   1          // BT_RTS = 1;
+ 124   1          // Delay50ms();
+ 125   1      
+ 126   1      
+ 127   1          BT_RTS = 0;
+ 128   1          sync_with_alert();
+ 129   1          ble_send_command("AT+RSET\r\n");
+ 130   1          Delay50ms();
+ 131   1          BT_RTS = 1;
+ 132   1          init_uart();
+ 133   1      }
+ 134          
+ 135          
+ 136          void BLE_Init() {
+ 137   1      
+ 138   1          memset(TX1_Buffer, 0, COM_TX1_Lenth);
+ 139   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+ 140   1          USART_Init(&COM1);
+ 141   1      
+ 142   1          S1_8bit();
+ 143   1          S1_BRT_UseTimer2();     // S1 BRT Use Timer2;
+ 144   1      
+ 145   1          S1_Int_Enable();        // 允许中断
+ 146   1      
+ 147   1          S1_RX_Enable();         // Rx 接收允许
+ 148   1       //   S1_USE_P30P31();
+ 149   1          S1_USE_P36P37();
+ 150   1          quasi_bidirectional(BLE_TX_Mx, BLE_TX_BIT);
+ 151   1          quasi_bidirectional(BLE_RX_Mx, BLE_RX_BIT);
+ 152   1      
+ 153   1          S1_TXD_RXD_OPEN();
+ 154   1      
+ 155   1          USART_Share_Timer2();
+ 156   1      
+ 157   1      
+ 158   1      }
+ 159          
+ 160          bool Check_Requset_for_Write_Password(u8 *received)
+ 161          {
+ 162   1          u8 i, list_for_password[4];
+ 163   1          for(i = 0; i < 4; i++)
+ 164   1              list_for_password[i] = received[i+1];
+ 165   1          if(CheckComplement(received, 5, 8, received, 1, 4) && ChecksimpleCRC(received, 1, 8, received[9]) && C
+             -heckComplement(received, 10, 19, received, 0, 9))
+ 166   1          {
+ 167   2              Store_Password(list_for_password, 0, 3);
+ 168   2              return 0;
+ 169   2          }
+ 170   1          else
+ 171   1              return 1;
+ 172   1      }
+ 173          
+ 174          void Send_Response_for_Password(u8 *received)
+ 175          {
+ 176   1          u8 send_data[20], i, password[4], key_in[16];
+ 177   1          memset(send_data, 0 , 20);
+ 178   1          if(!Check_Requset_for_Write_Password(received))
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 4   
+
+ 179   1          { 
+ 180   2              send_data[0] = 0x02;
+ 181   2              // todo
+ 182   2              // 获取16字节的key
+ 183   2              for(i = 0; i < 4; i++)
+ 184   2                  password[i] = received[i+1];
+ 185   2              ENTANG_A_init(password, key_in);
+ 186   2              for(i = 0; i < 16; i++)
+ 187   2                 send_data[i + 1] = key_in[i];
+ 188   2              send_data[17] = CRC_Creat(send_data, 1, 8);
+ 189   2              send_data[18] = CRC_Creat(send_data, 9, 16);
+ 190   2              send_data[19] = (u8) (AND_Creat(send_data, 1, 16) ^ (AND_Creat(send_data, 1, 16) >> 8));
+ 191   2          }
+ 192   1          else
+ 193   1          {
+ 194   2              send_data[0] = 0x03;
+ 195   2              for(i = 1; i < 20; i++)
+ 196   2                  send_data[i] = 0x00;
+ 197   2          }
+ 198   1          ble_send_data(send_data);
+ 199   1      }
+ 200          
+ 201          
+ 202          bool Check_Requset_for_Open_key_cabinet(u8 *received)
+ 203          {
+ 204   1          u8 i, code_receive[16], decode[16];
+ 205   1          u32 timestamp_pre_high, timestamp_pre_low, timestamp_high, timestamp_low;
+ 206   1          timestamp_pre_high = timestamp_pre_low = timestamp_high = timestamp_low = 0;
+ 207   1          for(i = 4; i < 20; i++)
+ 208   1              code_receive[i-4] = received[i];
+ 209   1          // 解密第4～19字节
+ 210   1          ENTANG_key_init();
+ 211   1          ENTANG_A_dec(code_receive, decode);
+ 212   1          
+ 213   1          // 64位无法存储、分开读取 
+ 214   1          for(i = 0; i < 4; i++)
+ 215   1              timestamp_high = timestamp_high << 8 | decode[i];
+ 216   1          for(i = 4; i < 8; i++)
+ 217   1              timestamp_low = timestamp_low << 8 | decode[i]; 
+ 218   1          
+ 219   1          timestamp_pre_high = Read_Timestamp_High();
+ 220   1          timestamp_pre_low = Read_Timestamp_Low();
+ 221   1      
+ 222   1          if((received[3] == received[1] ^ received[2]) && CheckComplement(decode, 0, 7, decode, 8, 15)
+ 223   1          && (timestamp_high > timestamp_pre_high || ((timestamp_high == timestamp_pre_high)  && (timestamp_low 
+             -> timestamp_pre_low))))
+ 224   1          {
+ 225   2              Store_Timestamp(decode, 0, 7);
+ 226   2              return 0;
+ 227   2          }
+ 228   1          else
+ 229   1              return 1;
+ 230   1      
+ 231   1      }
+ 232          
+ 233          
+ 234          void Send_Response_for_Open_key_cabinet(u8 *received)
+ 235          {
+ 236   1          u8 send_data[20] , i;
+ 237   1          memset(send_data, 0 , 20);
+ 238   1          send_data[0] = 0x05;
+ 239   1          if(!Check_Requset_for_Open_key_cabinet(received))
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 5   
+
+ 240   1          { 
+ 241   2              send_data[1] = 0x00;
+ 242   2              // 开柜门
+ 243   2              candidate_driver_signal_recieving = YES;
+ 244   2              DRIVER = 1; // 开锁
+ 245   2          }
+ 246   1          else
+ 247   1              send_data[1] = 0x01;
+ 248   1          for(i = 2; i < 20; i++)
+ 249   1              send_data[i] = 0x00;
+ 250   1          ble_send_data(send_data);
+ 251   1      }
+ 252          
+ 253          
+ 254          // 黑科技指令：
+ 255          // Request: 20字节
+ 256          // 第0字节： 1字节， 命令ID， 0x80 - 0xFF 间随机值
+ 257          // 第1字节： 1字节， 第0字节取反
+ 258          // 第2字节： 1字节， 第0字节和第1字节异或
+ 259          // 第3～18字节： 16字节， 8字节的Timestamp和8字节的Timestamp的取反）和第0字节异或
+ 260          // 第19字节： 1字节： 第3～18字节的字节和的两个字节异或
+ 261          
+ 262          
+ 263          bool Check_Requset_for_Key_request(u8 *received)        
+ 264          {
+ 265   1          if(
+ 266   1              ((received[0] & 0x18) == (received[1] & 0x18)) 
+ 267   1              && (received[2] == (u8)(received[0] + received[1])) 
+ 268   1              && (received[3] ^ received[0]== ~(received[11] ^ received[0])) 
+ 269   1              && (received[4] ^ received[0]== ~(received[12] ^ received[0])) 
+ 270   1              && (received[5] ^ received[0]== ~(received[13] ^ received[0])) 
+ 271   1              && (received[6] ^ received[0]== ~(received[14] ^ received[0])) 
+ 272   1              && (received[7] ^ received[0]== ~(received[15] ^ received[0])) 
+ 273   1              && (received[8] ^ received[0]== ~(received[16] ^ received[0])) 
+ 274   1              && (received[9] ^ received[0]== ~(received[17] ^ received[0])) 
+ 275   1              && (received[10] ^ received[0]== ~(received[18] ^ received[0])) 
+ 276   1              && (received[19] == (u8) (AND_Creat(received, 3, 18) ^ (AND_Creat(received, 3, 18) >> 8)))
+ 277   1          )
+ 278   1          {
+ 279   2              return 0;
+ 280   2          }
+ 281   1          else
+ 282   1          {
+ 283   2              return 1;
+ 284   2          }
+ 285   1      }
+ 286          
+ 287          
+ 288          
+ 289          // Response: 20字节
+ 290          // 第0字节：1字节，命令ID, 同Request指令第0字节
+ 291          // 第1～16字节：16字节，生成的16字节的key 与 第0字节的异或
+ 292          // 第17字节：1字节，第1～8字节的CRC校验
+ 293          // 第18字节：1字节，第9～16字节的CRC校验
+ 294          // 第19字节：1字节，第1～16字节的字节和的两个字节异或
+ 295          
+ 296          void Send_Response_for_Key_request(u8 *received)
+ 297          {
+ 298   1          u8 send_data[20] , i;
+ 299   1          u8 user_password[4], key_init[16];
+ 300   1          memset(send_data, 0 , 20);
+ 301   1          send_data[0] = received[0];
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 6   
+
+ 302   1          if(!Check_Requset_for_Key_request(received))
+ 303   1          { 
+ 304   2              Read_Password(user_password, 0, 3);
+ 305   2              ENTANG_A_init(user_password, key_init);
+ 306   2              for(i = 1; i < 17; i++)
+ 307   2                  send_data[i] = key_init[i-1] ^ send_data[0];
+ 308   2              send_data[17] = CRC_Creat(send_data, 1, 8);
+ 309   2              send_data[18] = CRC_Creat(send_data, 9, 16);
+ 310   2              send_data[19] = (u8) (AND_Creat(send_data, 1, 16) ^ (AND_Creat(send_data, 1, 16) >> 8));
+ 311   2          }
+ 312   1          else
+ 313   1          {
+ 314   2              send_data[1] = 0x01;
+ 315   2              for(i = 2; i < 20; i++)
+ 316   2                  send_data[i] = 0x00;
+ 317   2          }
+ 318   1          ble_send_data(send_data);
+ 319   1      }
+ 320          
+ 321          
+ 322          void ble_process_recieved() {
+ 323   1          unsigned char received[32];
+ 324   1          ble_recieve_data(received);
+ 325   1          if (strcmp(received, BLE_IND_LINKED) == 0) {
+ 326   2              // 5s没发数据、断开
+ 327   2              reset_all_counters();
+ 328   2              candidate_time_out_signal_recieving = YES;
+ 329   2              reset_counter_for_ble();
+ 330   2              // candidate_time_out_signal_recieving = NO;
+ 331   2          } else if (strcmp(received, BLE_IND_ADVERTISING) == 0) {
+ 332   2              candidate_time_out_signal_recieving = NO;
+ 333   2              _nop_();
+ 334   2          } else if (strcmp(received, BLE_IND_LINKED_TIME_OUT) == 0) {
+ 335   2              candidate_time_out_signal_recieving = NO;
+ 336   2              BLE_Enter_Adversting();
+ 337   2          } else if (strcmp(received, BLE_IND_UNLINKED) == 0) {
+ 338   2              candidate_time_out_signal_recieving = NO;
+ 339   2              _nop_();
+ 340   2          } else if (strcmp(received, BLE_IND_INIT) == 0) {
+ 341   2              candidate_time_out_signal_recieving = NO;
+ 342   2          _nop_();
+ 343   2          } else if(strcmp(received, BLE_IND_SUCCESS_CHANGE_BLE_NAME) == 0){
+ 344   2              reset_all_counters();
+ 345   2              candidate_time_out_signal_recieving = NO;
+ 346   2              BLE_Enter_Adversting(); 
+ 347   2          } 
+ 348   1          // else {
+ 349   1          //     // 错误数据直接断开进入广播模式
+ 350   1          //     reset_all_counters();
+ 351   1          //     candidate_time_out_signal_recieving = NO;
+ 352   1          //     BLE_Enter_Adversting();
+ 353   1          // }
+ 354   1      }
+ 355          
+ 356          
+ 357          
+ 358          void request_process_recieved()
+ 359          {
+ 360   1          unsigned char received[20];
+ 361   1          ble_recieve_data(received);
+ 362   1          // 判断开关
+ 363   1          if((received[0] == 0x01) && !CODE){
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 7   
+
+ 364   2              candidate_time_out_signal_recieving = NO;
+ 365   2              reset_all_counters();
+ 366   2              Send_Response_for_Password(received);
+ 367   2          }else if(received[0] == 0x04){
+ 368   2              candidate_time_out_signal_recieving = NO;
+ 369   2              reset_all_counters();
+ 370   2              Send_Response_for_Open_key_cabinet(received);
+ 371   2          }else if(received[0] >= 0x80 && received[0] <= 0xFF ){
+ 372   2              candidate_time_out_signal_recieving = NO;
+ 373   2              reset_all_counters();
+ 374   2              Send_Response_for_Key_request(received);
+ 375   2          } else {
+ 376   2              reset_all_counters();
+ 377   2              candidate_time_out_signal_recieving = NO;
+ 378   2              BLE_Enter_Adversting();
+ 379   2          }
+ 380   1      
+ 381   1      }
+ 382          // Handle usart trigger: receiving "\r\n"
+ 383          void UART1_int (void) interrupt UART1_VECTOR
+ 384          {
+ 385   1          if(RI)
+ 386   1          {
+ 387   2              if(COM1.B_RX_OK == 0)
+ 388   2              {
+ 389   3                  if(!received_for_ble_response && !received_for_request)
+ 390   3                  {
+ 391   4                      if((SBUF >= 65 && SBUF <= 90) || (SBUF >= 97 && SBUF <= 122))
+ 392   4                          received_for_ble_response = 1;
+ 393   4                      else
+ 394   4                          received_for_request = 1;
+ 395   4                  }
+ 396   3                  if(received_for_ble_response)
+ 397   3                  {
+ 398   4                      RX1_Buffer[COM1.RX_Cnt++] = SBUF;
+ 399   4                      if (SBUF == '\n') {
+ 400   5                          COM1.B_RX_OK = 1;
+ 401   5                          received_for_ble_response = 0;
+ 402   5                          INT_PROC |= BLE_DUTY;
+ 403   5                      }
+ 404   4                      else if(RX1_Buffer[1] == 'K' && RX1_Buffer[0] == 'O')
+ 405   4                      {
+ 406   5                          COM1.RX_Cnt = 0;
+ 407   5                          received_for_ble_response = 0;
+ 408   5                      }
+ 409   4                      if (COM1.RX_Cnt >= COM_RX1_Lenth)
+ 410   4                      {    
+ 411   5                          COM1.RX_Cnt = 0;
+ 412   5                          received_for_ble_response = 0;
+ 413   5                      }
+ 414   4                  }
+ 415   3                  if(received_for_request)
+ 416   3                  {
+ 417   4                      RX1_Buffer[COM1.RX_Cnt++] = SBUF;
+ 418   4                      if (COM1.RX_Cnt == 20) {
+ 419   5                          COM1.B_RX_OK = 1;
+ 420   5                          INT_PROC |= REQUEST_DUTY;
+ 421   5                          received_for_request = 0;
+ 422   5                      }
+ 423   4                  }
+ 424   3                  COM1.RX_TimeOut = TimeOutSet1;
+ 425   3              } 
+C51 COMPILER V9.52.0.0   BLE                                                               01/18/2016 20:03:23 PAGE 8   
+
+ 426   2              RI = 0;
+ 427   2          }
+ 428   1      
+ 429   1          if(TI)
+ 430   1          {
+ 431   2              TI = 0;
+ 432   2              if(COM1.TX_read != COM1.TX_write)
+ 433   2              {
+ 434   3                  SBUF = TX1_Buffer[COM1.TX_read];
+ 435   3                  if(++COM1.TX_read >= COM_TX1_Lenth)     
+ 436   3                      COM1.TX_read = 0;
+ 437   3              }
+ 438   2              else    
+ 439   2                  COM1.B_TX_busy = 0;
+ 440   2          }
+ 441   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2751    ----
+   CONSTANT SIZE    =    101    ----
+   XDATA SIZE       =     54     231
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

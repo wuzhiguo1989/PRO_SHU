@@ -1,0 +1,15 @@
+"STARTUP.obj",
+"ble.obj",
+"sync.obj",
+"usart.obj",
+"main.obj",
+"task.obj",
+"key.obj",
+"led.obj",
+"pwm.obj",
+"display.obj",
+"music.obj",
+"power.obj" 
+TO "lock" 
+
+REMOVEUNUSED 

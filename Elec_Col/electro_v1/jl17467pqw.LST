@@ -1,0 +1,267 @@
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        03/03/2016 19:04:47 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE JL17467PQW
+OBJECT MODULE PLACED IN jl17467pqw.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE jl17467pqw.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          # include "jl17467pqw.h"
+   2          # include "share.h"
+   3          # include "adc.h"
+   4          
+   5          #define FIRST_NOT_DISPLAY  10
+   6          
+   7          static code u8 const digit_code_line_location[17] ={
+   8            // 1, 2, 3, 4, 5, 6, 7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17
+   9               2, 3, 4, 5, 6, 7, 8, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9   // ABCDEFG
+  10          };
+  11          
+  12          static code u8 const digit_code_column_location[7][17] = {
+  13            // 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17
+  14              {7, 7, 7, 7, 7, 7, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},     // A
+  15              {6, 6, 6, 6, 6, 6, 6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},     // B
+  16              {5, 5, 5, 5, 5, 5, 5, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},     // C
+  17              {4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},     // D 
+  18              {1, 1, 1, 1, 1, 1, 1, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7},     // E
+  19              {3, 3, 3, 3, 3, 3, 3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5},     // F 
+  20              {2, 2, 2, 2, 2, 2, 2, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6}      // G
+  21          };
+  22          
+  23          // GFEDCBA
+  24          static code u8 const digit_transfer_code[11] = {
+  25            //   0,    1,    2,    3,    4,    5,    6,    7,    8,    9,  FIRST_NOT_DISPLAY
+  26              0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F, 0x00
+  27          };
+  28          
+  29          
+  30          
+  31          static void jt17467pqw_set_digit(const u8 digit, const u8 id)
+  32          {
+  33   1        u8 flag;
+  34   1        u8 mask = 0x01, t_code = digit_transfer_code[digit];
+  35   1        u8 iterator;
+  36   1        for (iterator = 0; iterator < 7; ++iterator) {
+  37   2            flag = t_code & mask;
+  38   2            set(flag, digit_code_line_location[id-1], digit_code_column_location[iterator][id-1]);
+  39   2            t_code >>= 1;
+  40   2          }
+  41   1      }
+  42          
+  43          // 36v
+  44          static code u8 const battery_level[4] ={32,  33,  34,  35};
+  45          // 48v
+  46          // static code u8 const battery_level[4] ={ 43,  45,  47,  49};
+  47          
+  48          static void jt17467pqw_set_battery_level(const u8 level)
+  49          {
+  50   1        if(level == 1)
+  51   1        {
+  52   2          jt17467pqw_set_battery_level_1(time_colon_icon);
+  53   2          jt17467pqw_set_battery_level_2(0);
+  54   2          jt17467pqw_set_battery_level_3(0);
+  55   2          jt17467pqw_set_battery_level_4(0);
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        03/03/2016 19:04:47 PAGE 2   
+
+  56   2          jt17467pqw_set_battery_level_5(0);
+  57   2        }
+  58   1        else
+  59   1        {
+  60   2          jt17467pqw_set_battery_level_1(1);
+  61   2          jt17467pqw_set_battery_level_2(1);
+  62   2          jt17467pqw_set_battery_level_3(level < 3 ? 0 : 1);
+  63   2          jt17467pqw_set_battery_level_4(level < 4 ? 0 : 1);
+  64   2          jt17467pqw_set_battery_level_5(level < 5 ? 0 : 1);
+  65   2        }
+  66   1      }
+  67          
+  68          void jt17467pqw_set_battery(const u8 power)
+  69          {
+  70   1        jt17467pqw_set_display_battery(1);
+  71   1        if(power <= battery_level[0]){
+  72   2          jt17467pqw_set_battery_level(1);
+  73   2        } else if(power > battery_level[0] && power <= battery_level[1]){
+  74   2          jt17467pqw_set_battery_level(2);
+  75   2        } else if(power > battery_level[1] && power <= battery_level[2]){
+  76   2          jt17467pqw_set_battery_level(3);
+  77   2        } else if(power > battery_level[2] && power <= battery_level[3]){
+  78   2          jt17467pqw_set_battery_level(4);
+  79   2        } else if(power > battery_level[3]){
+  80   2          jt17467pqw_set_battery_level(5);
+  81   2        }
+  82   1      }
+  83          
+  84          static code u16 const power_level[6] ={0x0005,  0x0114,  0x0228,  0x033C,  0x0450, 0x0564};
+  85          
+  86          static void jt17467pqw_set_power_level(const u8 level)
+  87          {
+  88   1          jt17467pqw_set_power_level_1(level < 1 ? 0 : 1);
+  89   1          jt17467pqw_set_power_level_2(level < 2 ? 0 : 1);
+  90   1          jt17467pqw_set_power_level_3(level < 3 ? 0 : 1);
+  91   1          jt17467pqw_set_power_level_4(level < 4 ? 0 : 1);
+  92   1          jt17467pqw_set_power_level_5(level < 5 ? 0 : 1);
+  93   1          jt17467pqw_set_power_level_6(level < 6 ? 0 : 1);
+  94   1      }
+  95          
+  96          void jt17467pqw_set_power(const u16 power)
+  97          {
+  98   1        jt17467pqw_set_display_power(1);
+  99   1        if(power < power_level[0]){
+ 100   2          jt17467pqw_set_power_level(0);
+ 101   2        } else if(power >= power_level[0] && power < power_level[1]){
+ 102   2          jt17467pqw_set_power_level(1);
+ 103   2        } else if(power >= power_level[1] && power < power_level[2]){
+ 104   2          jt17467pqw_set_power_level(2);
+ 105   2        } else if(power >= power_level[2] && power < power_level[3]){
+ 106   2          jt17467pqw_set_power_level(3);
+ 107   2        } else if(power >= power_level[3] && power < power_level[4]){
+ 108   2          jt17467pqw_set_power_level(4);
+ 109   2        } else if(power >= power_level[4] && power < power_level[5]){
+ 110   2          jt17467pqw_set_power_level(5);
+ 111   2        } else if(power >= power_level[5]){
+ 112   2          jt17467pqw_set_power_level(6);
+ 113   2        }
+ 114   1      }
+ 115          
+ 116          
+ 117          // 暂时先考虑KM/h
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        03/03/2016 19:04:47 PAGE 3   
+
+ 118          void jt17467pqw_set_speed(const u16 speed)
+ 119          {
+ 120   1        jt17467pqw_set_speed_unit_KMph(1);
+ 121   1          //jt17467pqw_set_speed_unit_mps(1);
+ 122   1        if(speed < 100)
+ 123   1          jt17467pqw_set_digit(FIRST_NOT_DISPLAY, SPEED_DECADE_ID);
+ 124   1        else
+ 125   1          jt17467pqw_set_digit(speed/100, SPEED_DECADE_ID);
+ 126   1        jt17467pqw_set_digit((speed%100/10) , SPEED_UNIT_ID);
+ 127   1        jt17467pqw_set_speed_decimal_point(1);
+ 128   1        jt17467pqw_set_digit(speed%10, SPEED_DECIMAL_ID);
+ 129   1      }
+ 130          
+ 131          
+ 132          void jt17467pqw_set_time(const time_t time_display)
+ 133          {
+ 134   1        jt17467pqw_set_digit(time_display.hour/10, TIME_HOUR_DECADE_ID);
+ 135   1        jt17467pqw_set_digit(time_display.hour%10, TIME_HOUR_UNIT_ID);
+ 136   1        // 闪烁
+ 137   1        jt17467pqw_set_time_colon(time_colon_icon);
+ 138   1        jt17467pqw_set_digit(time_display.minute/10, TIME_MINUTE_DECADE_ID);
+ 139   1        jt17467pqw_set_digit(time_display.minute%10, TIME_MINUTE_UNIT_ID);
+ 140   1      }
+ 141          
+ 142          // 暂时先考虑摄氏度
+ 143          void jt17467pqw_set_temperature(const u8 temperature)
+ 144          {
+ 145   1        u8 temperature_value;
+ 146   1      
+ 147   1        jt17467pqw_set_temperature_unit_celsius(1);
+ 148   1       // jt17467pqw_set_temperature_unit_fahrenheit(1);
+ 149   1      
+ 150   1      
+ 151   1        if(temperature < TEMPERATURE_ZERO_VALUE)
+ 152   1        {
+ 153   2          temperature_value = TEMPERATURE_ZERO_VALUE - temperature;
+ 154   2          jt17467pqw_set_temperature_sign(1);
+ 155   2      
+ 156   2        }
+ 157   1        else
+ 158   1        {
+ 159   2          temperature_value = temperature - TEMPERATURE_ZERO_VALUE;
+ 160   2          jt17467pqw_set_temperature_sign(0);
+ 161   2        }
+ 162   1      
+ 163   1      
+ 164   1        if(temperature >= TEMPERATURE_BOIL_VALUE || temperature <= TEMPERATURE_NEGATIVE_BOIL_VALUE)
+ 165   1        {
+ 166   2          jt17467pqw_set_temperature_greater_than_hundred(1);
+ 167   2          temperature_value = temperature_value - 100;
+ 168   2        }
+ 169   1        else
+ 170   1        {
+ 171   2          jt17467pqw_set_temperature_greater_than_hundred(0);
+ 172   2          if(temperature_value < 10)
+ 173   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY , TEMPERATURE_DECADE_ID);
+ 174   2          else
+ 175   2            jt17467pqw_set_digit(temperature_value/10 , TEMPERATURE_DECADE_ID);
+ 176   2        }
+ 177   1      
+ 178   1        
+ 179   1        jt17467pqw_set_digit(temperature_value%10 , TEMPERATURE_UNIT_ID);
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        03/03/2016 19:04:47 PAGE 4   
+
+ 180   1      
+ 181   1      }
+ 182          
+ 183          
+ 184          
+ 185          // 暂时先考虑KM
+ 186          void jt17467pqw_set_mileage(u16 mileage)
+ 187          {
+ 188   1        jt17467pqw_set_milegae_unit_KM(1);
+ 189   1      //jt17467pqw_set_mileage_unit_mile(x);
+ 190   1        if(mileage / 1000)
+ 191   1          mileage = mileage - (mileage / 1000 * 1000);
+ 192   1      
+ 193   1        if(mileage < 100)
+ 194   1          jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_DECADE_ID);
+ 195   1        else
+ 196   1          jt17467pqw_set_digit(mileage/100, MILEAGE_DECADE_ID);
+ 197   1        jt17467pqw_set_digit(mileage % 100 / 10, MILEAGE_UNIT_ID);
+ 198   1        jt17467pqw_set_mileage_decimal_point(1);
+ 199   1        jt17467pqw_set_digit(mileage % 10, MILEAGE_DECIMAL_ID);
+ 200   1      }
+ 201          
+ 202          
+ 203          // 暂时先考虑KM
+ 204          void jt17467pqw_set_mileage_total(const u32 mileage_total)
+ 205          {
+ 206   1        jt17467pqw_set_mileage_total_unit_KM(1);
+ 207   1      //  mileage_total += 99000;
+ 208   1      //  jt17467pqw_set_mileage_total_unit_mile(x);
+ 209   1        if(mileage_total < 100000)
+ 210   1        {
+ 211   2          if(mileage_total < 10000)
+ 212   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_THOUSAND_ID);
+ 213   2          else
+ 214   2            jt17467pqw_set_digit(mileage_total/10000 , MILEAGE_TOTAL_THOUSAND_ID);
+ 215   2          if(mileage_total < 1000)
+ 216   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_HUNDRED_ID);
+ 217   2          else
+ 218   2            jt17467pqw_set_digit(mileage_total % 10000 / 1000, MILEAGE_TOTAL_HUNDRED_ID);
+ 219   2          if(mileage_total < 100)
+ 220   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_DECADE_ID);
+ 221   2          else
+ 222   2            jt17467pqw_set_digit(mileage_total % 1000 / 100, MILEAGE_TOTAL_DECADE_ID); 
+ 223   2          jt17467pqw_set_digit(mileage_total % 100 / 10 , MILEAGE_TOTAL_UNIT_ID);
+ 224   2          jt17467pqw_set_mileage_total_decimal_point(1);
+ 225   2          jt17467pqw_set_digit(mileage_total % 10 , MILEAGE_TOTAL_DECIMAL_ID);
+ 226   2        }
+ 227   1        else
+ 228   1        {
+ 229   2          jt17467pqw_set_digit(mileage_total/100000 , MILEAGE_TOTAL_THOUSAND_ID);
+ 230   2          jt17467pqw_set_digit(mileage_total % 100000 / 10000, MILEAGE_TOTAL_HUNDRED_ID);
+ 231   2          jt17467pqw_set_digit(mileage_total % 10000 / 1000, MILEAGE_TOTAL_DECADE_ID); 
+ 232   2          jt17467pqw_set_digit(mileage_total % 1000 / 100 , MILEAGE_TOTAL_UNIT_ID);
+ 233   2          jt17467pqw_set_mileage_total_decimal_point(0);
+ 234   2          jt17467pqw_set_digit(mileage_total % 100 / 10 , MILEAGE_TOTAL_DECIMAL_ID);
+ 235   2        }
+ 236   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1571    ----
+   CONSTANT SIZE    =    163    ----
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        03/03/2016 19:04:47 PAGE 5   
+
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      23
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,183 @@
+C51 COMPILER V9.52.0.0   LM567                                                             10/10/2016 14:28:55 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LM567
+OBJECT MODULE PLACED IN lm567.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE lm567.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1           #include "lm567.h" 
+   2           #include "string.h" 
+   3           #include "usart.h" 
+   4           #include "task.h" 
+   5           #include "config.h" 
+   6           #include "stdio.h" 
+   7           #include "sync.h" 
+   8           #include "utils.h" 
+   9           #include "key.h" 
+  10           #include "power.h"  
+  11           #include "display.h" 
+  12           
+  13           
+  14           
+  15           
+  16           #define ble_send_command(x)   PrintString1(x) 
+  17           #define ble_recieve_data(x)   GetString1(x) 
+  18           static volatile u8 xdata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲 
+  19           static volatile u8 xdata RX1_Buffer[COM_RX1_Lenth];    //接收缓冲 
+  20           
+  21           
+  22           void TX1_write2buff(const u8 dat)  
+  23           { 
+  24   1           TX1_Buffer[COM1.TX_write] = dat;        // 装发送缓冲 
+  25   1           if(++COM1.TX_write >= COM_TX1_Lenth)     
+  26   1               COM1.TX_write = 0; 
+  27   1       
+  28   1       
+  29   1           if(COM1.B_TX_busy == 0)                 // 空闲 
+  30   1           {   
+  31   2               COM1.B_TX_busy = 1;                 // 标志忙 
+  32   2               TI = 1;                             // 触发发送中断 
+  33   2           } 
+  34   1       } 
+  35           
+  36            
+  37            
+  38           
+  39           static void GetString1(u8 *received) { 
+  40   1          if (COM1.RX_Cnt)  
+  41   1              memcpy(received, RX1_Buffer, COM1.RX_Cnt); 
+  42   1           received[COM1.RX_Cnt] = '\0'; 
+  43   1           memset(RX1_Buffer, 0, COM_RX1_Lenth); 
+  44   1           COM1.RX_Cnt = 0; 
+  45   1           COM1.B_RX_OK = FALSE; 
+  46   1       } 
+  47           
+  48           
+  49           static void PrintString1(u8 *puts) 
+  50           { 
+  51   1           for (; *puts != 0;  puts++)  TX1_write2buff(*puts);     //遇到停止符0结束 
+  52   1       } 
+  53           
+  54           
+  55           void BLE_Init() { 
+C51 COMPILER V9.52.0.0   LM567                                                             10/10/2016 14:28:55 PAGE 2   
+
+  56   1       
+  57   1       
+  58   1           memset(TX1_Buffer, 0, COM_TX1_Lenth); 
+  59   1           memset(RX1_Buffer, 0, COM_RX1_Lenth); 
+  60   1           USART_Init(&COM1); 
+  61   1       
+  62   1       
+  63   1           S1_8bit(); 
+  64   1           S1_BRT_UseTimer2();     // S1 BRT Use Timer2; 
+  65   1       
+  66   1       
+  67   1           S1_Int_Enable();        // 允许中断 
+  68   1      
+  69   1       
+  70   1           S1_RX_Enable();         // Rx 接收允许 
+  71   1          S1_USE_P36P37(); 
+  72   1          quasi_bidirectional(3, 0x80); 
+  73   1          quasi_bidirectional(3, 0x40); 
+  74   1        //  S1_USE_P30P31(); 
+  75   1          // quasi_bidirectional(3, 0x01); 
+  76   1          // quasi_bidirectional(3, 0x02);
+  77   1       
+  78   1           S1_TXD_RXD_OPEN(); 
+  79   1       
+  80   1       
+  81   1           USART_Share_Timer2(); 
+  82   1       } 
+  83           
+  84           
+  85           #define GP228_CMD_SIZE   4 
+  86           
+  87           
+  88           static void uart_dispatch_gp228_cmd(const char xdata *cmd) { 
+  89   1           // A  mode 
+  90   1           // B  power 
+  91   1           // C  color 
+  92   1           // D  alarm 
+  93   1           // E  lumins 
+  94   1           // F  speed
+  95   1           if (cmd[0] == 'A') { 
+  96   2              ctrl_mode_changed((cmd[1] - '0') * 10 + (cmd[2] - '0')); 
+  97   2           } else if (cmd[0] == 'B') { 
+  98   2              power_level_set = cmd[1] - '0';
+  99   2              power_select_level(); 
+ 100   2           } else if (cmd[0] == 'C'){ 
+ 101   2              led_syc_color(cmd); 
+ 102   2           } else if (cmd[0] == 'D'){ 
+ 103   2              countdown_off(cmd[1] - '0'); 
+ 104   2           } else if (cmd[0] == 'E'){
+ 105   2              //todo 
+ 106   2              ctrl_lumins_changed((cmd[1] - '0') * 10 + (cmd[2] - '0'));
+ 107   2           } else if (cmd[0] == 'F') { 
+ 108   2              ctrl_speed_level_changed((cmd[1] - '0') * 10 + (cmd[2] - '0')); 
+ 109   2           }  
+ 110   1        } 
+ 111           
+ 112           
+ 113           void uart_process_recieved() { 
+ 114   1           char received[COM_RX1_Lenth]; 
+ 115   1           ble_recieve_data(received); 
+ 116   1           uart_dispatch_gp228_cmd(received);  
+ 117   1       } 
+C51 COMPILER V9.52.0.0   LM567                                                             10/10/2016 14:28:55 PAGE 3   
+
+ 118           
+ 119           
+ 120          // Handle usart trigger: receiving "\r\n" 
+ 121          void UART1_int (void) interrupt UART1_VECTOR 
+ 122           { 
+ 123   1          if(RI) 
+ 124   1           { 
+ 125   2               RI = 0; 
+ 126   2       
+ 127   2       
+ 128   2               if(COM1.B_RX_OK == 0) 
+ 129   2               { 
+ 130   3                   if (COM1.RX_Cnt >= COM_RX1_Lenth) 
+ 131   3                       COM1.RX_Cnt = 0; 
+ 132   3                   RX1_Buffer[COM1.RX_Cnt++] = SBUF; 
+ 133   3                   COM1.RX_TimeOut = TimeOutSet1; 
+ 134   3               } 
+ 135   2       
+ 136   2       
+ 137   2           } 
+ 138   1       
+ 139   1       
+ 140   1           if(TI) 
+ 141   1           { 
+ 142   2               TI = 0; 
+ 143   2               if(COM1.TX_read != COM1.TX_write) 
+ 144   2               { 
+ 145   3                   SBUF = TX1_Buffer[COM1.TX_read]; 
+ 146   3                   if(++COM1.TX_read >= COM_TX1_Lenth)      
+ 147   3                       COM1.TX_read = 0; 
+ 148   3               } 
+ 149   2               else     
+ 150   2                   COM1.B_TX_busy = 0; 
+ 151   2           } 
+ 152   1       } 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    578    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     96      37
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

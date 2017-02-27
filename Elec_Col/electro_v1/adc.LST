@@ -1,0 +1,122 @@
+C51 COMPILER V9.52.0.0   ADC                                                               03/03/2016 19:04:48 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE ADC
+OBJECT MODULE PLACED IN adc.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE adc.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "adc.h"
+   2          #include "intrins.h"
+   3          #include "share.h"
+   4          #include "jl17467pqw.h"
+   5          
+   6          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+   7          #define adc_tem_channel 2
+   8          #define adc_bat_channel 3
+   9          
+  10          void init_adc()
+  11          {
+  12   1        P1ASF |= 0x0C;
+  13   1        ADC_RES = 0;
+  14   1        ADC_RESL = 0;
+  15   1        ADC_CONTR = ADC_POWER | ADC_SPEED;
+  16   1      }
+  17          
+  18          
+  19          static u16 GetADCResult(u8 channel)
+  20          {
+  21   1        ADC_RES = 0;
+  22   1        ADC_RESL = 0;
+  23   1        // 选通道需要清除之前的通道
+  24   1        ADC_CONTR &= 0xF8;
+  25   1        ADC_CONTR |= channel;
+  26   1        ADC_CONTR |= ADC_START;
+  27   1        _nop_();                        
+  28   1          _nop_();
+  29   1          _nop_();
+  30   1          _nop_();
+  31   1          wait_adc_finish();              
+  32   1          ADC_CONTR &= ~ADC_FLAG;         
+  33   1          return ((ADC_RES << 2) | ADC_RESL);
+  34   1      }
+  35          
+  36          static u16 code temperature_table[91] =
+  37          {
+  38            17180, 16140, 15180, 14280, 13440, 12670, 11940, 11270, 10630, 10040, 9488,
+  39            8963, 8471, 8010, 7578, 7172, 6790, 6432, 6096, 5779, 5481, 5197,
+  40            4928, 4675, 4435, 4209, 3995, 3793, 3602, 3422, 3251, 3094, 2945, 
+  41            2804, 2670, 2543, 2422, 2370, 2199, 2095, 1997, 1904, 1816, 1732,  
+  42            1652, 1577, 1505, 1437, 1372, 1310, 1252, 1196, 1143, 1093, 1045,
+  43            1000, 957, 916, 877, 839, 804, 770, 738, 707, 678, 650,
+  44            624, 598, 574, 551, 529, 508, 488, 469, 451, 433, 417,
+  45            401, 386, 371, 357, 344, 331, 319, 307, 296, 285, 275,
+  46            265, 255, 246
+  47          };
+  48          
+  49          void temperature_detected()
+  50          {
+  51   1        u8 i;
+  52   1        // , a, b, mid;
+  53   1        u16 temperature, adc_value = 0;
+  54   1        // a = 0;
+  55   1        // b = 90;
+C51 COMPILER V9.52.0.0   ADC                                                               03/03/2016 19:04:48 PAGE 2   
+
+  56   1        for(i = 0; i < 32; i++)
+  57   1          adc_value += GetADCResult(adc_tem_channel);
+  58   1        adc_value = adc_value >> 5;
+  59   1        // 计算temperature
+  60   1        temperature = 20000000 / (10240000 / adc_value - 10000);
+  61   1        // 查找
+  62   1        for(i = 0; i < 91; i++)
+  63   1        {
+  64   2          if(temperature > temperature_table[0])
+  65   2          {
+  66   3            temperature = 0;
+  67   3            break;
+  68   3          }
+  69   2          else if(temperature < temperature_table[90])
+  70   2          {
+  71   3            temperature = 90;
+  72   3            break;
+  73   3          }
+  74   2          else if(temperature <= temperature_table[i] && temperature > temperature_table[i+1])
+  75   2          {
+  76   3            temperature = i;
+  77   3            break;
+  78   3          }
+  79   2      
+  80   2        }
+  81   1        jt17467pqw_set_temperature(temperature);
+  82   1      }
+  83          
+  84          
+  85          
+  86          void battery_detected()
+  87          {
+  88   1        u8 i, battery;
+  89   1        u16 adc_value = 0;
+  90   1        for(i = 0; i < 16; i++)
+  91   1          adc_value += GetADCResult(adc_bat_channel);
+  92   1        adc_value = adc_value >> 4;
+  93   1        battery = 105 * adc_value / 1024;
+  94   1      
+  95   1        // 计算
+  96   1        jt17467pqw_set_battery(battery);
+  97   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    275    ----
+   CONSTANT SIZE    =    182    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

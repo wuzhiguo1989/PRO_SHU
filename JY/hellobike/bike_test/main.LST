@@ -1,0 +1,242 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              01/06/2017 11:17:04 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          *   STC-ISP导入芯片信息至Keil
+   3          *   采用STC15W4K32S4系列
+   4          *   假定测试芯片的工作频率为24.000MHz
+   5          */
+   6          
+   7          #include "utils.h"
+   8          #include "sync.h"
+   9          #include "task.h"
+  10          #include "key.h"
+  11          #include "string.h"
+  12          #include "power.h"
+  13          #include "lm567.h"
+  14          #include "utils.h"
+  15          #include "usart.h"
+  16          #include "beep.h"
+  17          #include "interact.h"
+  18          
+  19          #define TIME_PLUS 100
+  20          
+  21          static void init_system_component();
+  22          static void init_logic_params();
+  23          
+  24          
+  25          void Delay1000ms()      //@24.000MHz
+  26          {
+  27   1          unsigned char i, j, k;
+  28   1      
+  29   1          _nop_();
+  30   1          _nop_();
+  31   1          i = 92;
+  32   1          j = 50;
+  33   1          k = 238;
+  34   1          do
+  35   1          {
+  36   2              do
+  37   2              {
+  38   3                  while (--k);
+  39   3              } while (--j);
+  40   2          } while (--i);
+  41   1      }
+  42          
+  43          
+  44          void instant_effective_init() {
+  45   1          init_system_component();
+  46   1          init_logic_params();
+  47   1      
+  48   1      }
+  49          
+  50          
+  51          void main()
+  52          {  
+  53   1          // stop catching interrupt
+  54   1          EA = 0;
+  55   1      
+C51 COMPILER V9.52.0.0   MAIN                                                              01/06/2017 11:17:04 PAGE 2   
+
+  56   1          instant_effective_init();
+  57   1          count_down_init_all_task();
+  58   1          k_power_enable();
+  59   1      
+  60   1          // begin catching interrupt
+  61   1          EA = 1;
+  62   1           
+  63   1          // INT_PROC = SLEEP_DUTY;   
+  64   1      
+  65   1          while(1) {
+  66   2              // Feed dog
+  67   2              reset_watch_dog();
+  68   2      
+  69   2              if(INT_PROC & KEY_DUTY)
+  70   2              {
+  71   3                  count_down_at_all_task();
+  72   3                  key_task_duty();
+  73   3                  send_adc();
+  74   3                  INT_PROC &= ~KEY_DUTY;
+  75   3                  continue;
+  76   3              }
+  77   2      
+  78   2              if(INT_PROC & UART_DUTY) 
+  79   2              { 
+  80   3                  uart_process_recieved(); 
+  81   3                  INT_PROC &= ~UART_DUTY;              
+  82   3                  continue; 
+  83   3              } 
+  84   2      
+  85   2      
+  86   2              // 5ms检测一次
+  87   2              if(INT_PROC & TICK_DUTY)
+  88   2              {
+  89   3                  if (USART_RX_Block(&COM1))  
+  90   3                      INT_PROC |= UART_DUTY;
+  91   3                  // if (!lock_on_detect_signal){
+  92   3                  //     if(status_lock_on_detect() > TIME_PLUS){
+  93   3                  //         power_work_disable();
+  94   3                  //         // 开锁成功上报
+  95   3                  //         uart_send_open_success();
+  96   3                  //         status = on;
+  97   3                  //         cnt_on_time_plus = 0;
+  98   3                  //         lock_on_detect_signal = 1;
+  99   3                  //         k_power_disable();
+ 100   3                  //         cancle_open_count_down();
+ 101   3                  //     }
+ 102   3                  // }
+ 103   3                  // if (!lock_off_detect_signal){
+ 104   3                  //     if(status_lock_off_detect() > TIME_PLUS){
+ 105   3                  //         power_work_disable();
+ 106   3                  //         EX1 = ENABLE;
+ 107   3                  //         // 关锁成功上报
+ 108   3                  //         uart_send_lock_by_hand_success();
+ 109   3                  //         status = off;
+ 110   3                  //         cnt_off_time_plus = 0;
+ 111   3                  //         lock_off_detect_signal = 1;
+ 112   3                  //         resend_lock_command_signal = 1;
+ 113   3                  //         k_power_disable();
+ 114   3                  //         //reload_sleep_count_down();
+ 115   3                  //         cancle_lock_count_down();
+ 116   3                  //         // 倒计时一秒等待回应
+ 117   3                  //         reload_resend_lock_command();    
+C51 COMPILER V9.52.0.0   MAIN                                                              01/06/2017 11:17:04 PAGE 3   
+
+ 118   3                  //     }
+ 119   3                      
+ 120   3                  // }
+ 121   3                  cycle_based_control();
+ 122   3                  led_display_task(); 
+ 123   3                  INT_PROC &= ~TICK_DUTY;
+ 124   3                  continue;            
+ 125   3              }
+ 126   2      
+ 127   2              if(INT_PROC & LOCK_DETECT_DUTY){
+ 128   3                  // reload_sleep_count_down();
+ 129   3                  INT_PROC &= ~LOCK_DETECT_DUTY;
+ 130   3                  continue;
+ 131   3              }
+ 132   2      
+ 133   2      
+ 134   2              // if(INT_PROC & SLEEP_DUTY)
+ 135   2              // {
+ 136   2              //     EX1 = ENABLE;
+ 137   2              //     k_power_disable();
+ 138   2              //     speak_mode = mute;
+ 139   2              //     speak_beep_disable();
+ 140   2              //     led_mode_set = led_display_off;
+ 141   2              //     led_display_stop();
+ 142   2              //     status_in_sleep = 0;
+ 143   2              //     INT_PROC &= ~SLEEP_DUTY;
+ 144   2              //     PCON = 0x02;
+ 145   2              //     continue;
+ 146   2              // }
+ 147   2      
+ 148   2              if(INT_PROC & LOCK_DUTY)
+ 149   2              {
+ 150   3                  power_lock_work();
+ 151   3                  reload_lock_count_down();
+ 152   3                  reload_lock_beep_count_down();
+ 153   3                  lock_off_detect_signal = 0;
+ 154   3                  cnt_off_time_plus = 0;
+ 155   3                  led_mode_set = lock;
+ 156   3                  lock_signal = 1;
+ 157   3                  led_mode_changed(); 
+ 158   3                  INT_PROC &= ~LOCK_DUTY;
+ 159   3                  continue;
+ 160   3              }
+ 161   2      
+ 162   2              if(INT_PROC & LOCK_FAIL_DUTY)
+ 163   2              {
+ 164   3                  cancle_open_count_down();
+ 165   3                  cancle_lock_count_down();
+ 166   3                  led_flicker.cycle_enable = OFF;
+ 167   3                  led_power_disable();
+ 168   3                  status = on;
+ 169   3                  uart_send_lock_by_hand_fail();
+ 170   3                  resend_lock_command_signal = 2;
+ 171   3                  // reload_sleep_count_down();
+ 172   3                  reload_resend_lock_command();
+ 173   3                  EX1 = ENABLE;
+ 174   3                  INT_PROC &= ~LOCK_FAIL_DUTY;
+ 175   3                  continue;
+ 176   3              }
+ 177   2          }
+ 178   1      }
+ 179          
+C51 COMPILER V9.52.0.0   MAIN                                                              01/06/2017 11:17:04 PAGE 4   
+
+ 180          
+ 181          static void init_system_component() {  
+ 182   1          // timer
+ 183   1          init_system_tick();
+ 184   1      
+ 185   1          
+ 186   1        // power
+ 187   1        power_io_init();
+ 188   1      
+ 189   1          alter_beep_protect();
+ 190   1      
+ 191   1          speak_init_params();
+ 192   1          
+ 193   1          init_beep_io();
+ 194   1      
+ 195   1          led_io_init();
+ 196   1      
+ 197   1         init_adc();
+ 198   1      
+ 199   1          uart_Init();
+ 200   1        
+ 201   1      }
+ 202          
+ 203          
+ 204          static void init_logic_params() {
+ 205   1         init_sync_object();
+ 206   1      }
+ 207          
+ 208          
+ 209          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    272    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

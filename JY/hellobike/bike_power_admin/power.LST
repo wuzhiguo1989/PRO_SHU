@@ -1,0 +1,145 @@
+C51 COMPILER V9.52.0.0   POWER                                                             10/30/2016 15:12:22 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE POWER
+OBJECT MODULE PLACED IN power.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE power.c OMF2 ROM(SMALL) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "power.h"
+   2          #include "utils.h"
+   3          #include "task.h"
+   4          
+   5          static code u8 const speed_ref_para[4] = {
+   6              10, 25, 40, 50
+   7          };
+   8          
+   9          
+  10          // time_ref_enable + time_ref_disable = 50us
+  11          //   0%      100%    50%      40%     30%
+  12          static code u16 const time_ref_enable[5] = {
+  13              0xFFFF, 0xFFFF, 0xFFCE, 0xFFD8, 0xFFE2
+  14          };
+  15          
+  16          static code u16 const time_ref_disable[5] = {
+  17              0xFFFF, 0xFFFF, 0xFFCE, 0xFFC4, 0xFFBA
+  18          };
+  19          
+  20          // static code u16 const time_ref_enable[5] = {
+  21          //     0xFFFF, 0xFFFF, 0xFFCE, 0xFFD8, 0xFD44
+  22          // };
+  23          
+  24          // static code u16 const time_ref_disable[5] = {
+  25          //     0xFFFF, 0xFFFF, 0xFFCE, 0xFFC4, 0xFED4
+  26          // };
+  27          
+  28          
+  29          
+  30          // volatile speed_t idata speed = 0;
+  31          volatile u8 speed = 0;
+  32          u16 int0_counter = 0; 
+  33          
+  34          void power_io_init() {
+  35   1          // P32
+  36   1          pure_input(3, 0x04);
+  37   1          // P33
+  38   1          pure_input(3, 0x08);
+  39   1          // P55
+  40   1          push_pull(5, 0x20);
+  41   1      
+  42   1          INT0 = 1;
+  43   1          // 低电平报警
+  44   1          IT0 = 0;   //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  45   1          EX0 = ENABLE; 
+  46   1      }
+  47          
+  48          void driver_timer_enable()
+  49          {
+  50   1          Timer2_Stop();
+  51   1          T2_Load(time_ref_enable[speed]);
+  52   1          charge_power_enable();
+  53   1          Timer2_Run();
+  54   1      }
+  55          
+C51 COMPILER V9.52.0.0   POWER                                                             10/30/2016 15:12:22 PAGE 2   
+
+  56          void driver_timer_disable()
+  57          {
+  58   1          Timer2_Stop();
+  59   1          T2_Load(time_ref_disable[speed]);
+  60   1          charge_power_disable();
+  61   1          Timer2_Run();
+  62   1      }
+  63          
+  64          
+  65          
+  66          void freq_cal_driver()
+  67          {
+  68   1          u16 rise_fall_cnt = 0;
+  69   1          charge_power_disable();
+  70   1          Timer2_Stop();
+  71   1          rise_fall_cnt = int0_counter;
+  72   1          int0_counter = 0;
+  73   1          // 睡眠
+  74   1          if(rise_fall_cnt == 0){
+  75   2              speed = 0;
+  76   2              INT_PROC |= SLEEP_DUTY;
+  77   2          // 超低速
+  78   2          } 
+  79   1          // not hill_start
+  80   1          if(!INT1){
+  81   2              if (rise_fall_cnt > 0 && rise_fall_cnt <= speed_ref_para[0]){
+  82   3                  // speed = extreme_slow;
+  83   3                  speed = 0;
+  84   3                  charge_power_disable();
+  85   3              } else if (rise_fall_cnt > speed_ref_para[0] && rise_fall_cnt <= speed_ref_para[1]){
+  86   3                  //speed = slow;
+  87   3                  speed = 1;
+  88   3                  // 满格充
+  89   3                  charge_power_enable();
+  90   3              } else if (rise_fall_cnt > speed_ref_para[1] && rise_fall_cnt <= speed_ref_para[2]){
+  91   3                  //speed = middle;
+  92   3                  speed = 2;
+  93   3                  driver_timer_enable();
+  94   3              } else if (rise_fall_cnt > speed_ref_para[2] && rise_fall_cnt <= speed_ref_para[3]){
+  95   3                  //speed = fast;
+  96   3                  speed = 3;
+  97   3                  driver_timer_enable();
+  98   3              } else if (rise_fall_cnt > speed_ref_para[3]){
+  99   3                  //speed = ultrahigh_fast;
+ 100   3                  speed = 4;
+ 101   3                  driver_timer_enable();
+ 102   3              }
+ 103   2          }
+ 104   1      
+ 105   1          
+ 106   1      }
+ 107          
+ 108          
+ 109          // 下降沿
+ 110          // 中断0
+ 111          void exint0() interrupt INT0_VECTOR  using 1
+ 112          {
+ 113   1          int0_counter ++;
+ 114   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+C51 COMPILER V9.52.0.0   POWER                                                             10/30/2016 15:12:22 PAGE 3   
+
+   CODE SIZE        =    306    ----
+   CONSTANT SIZE    =     24    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      3    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

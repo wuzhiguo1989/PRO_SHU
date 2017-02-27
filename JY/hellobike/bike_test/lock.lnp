@@ -1,0 +1,14 @@
+"STARTUP.obj",
+"beep.obj",
+"key.obj",
+"lm567.obj",
+"main.obj",
+"power.obj",
+"sync.obj",
+"task.obj",
+"usart.obj",
+"interact.obj",
+"putchar.obj" 
+TO "lock" 
+
+REMOVEUNUSED 

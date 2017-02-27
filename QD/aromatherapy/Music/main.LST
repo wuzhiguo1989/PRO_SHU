@@ -1,0 +1,138 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              03/03/2016 15:49:51 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          *   STC-ISP导入芯片信息至Keil
+   3          *   采用STC15W4K32S4系列
+   4          *   假定测试芯片的工作频率为24.000MHz
+   5          */
+   6          
+   7          #include "config.h"
+   8          #include "utils.h"
+   9          #include "sync.h"
+  10          #include "ble.h"
+  11          #include "task.h"
+  12          #include "key.h"
+  13          #include "display.h"
+  14          #include "string.h"
+  15          #include "usart.h"
+  16          #include "power.h"
+  17          #include "music.h"
+  18          #include "power.h"
+  19          
+  20          static void init_system_component();
+  21          static void init_logic_params();
+  22          
+  23          
+  24          
+  25          void instant_effective_init() {
+  26   1          init_system_component();
+  27   1          init_logic_params();
+  28   1      }
+  29          
+  30          
+  31          void main()
+  32          {  
+  33   1          // stop catching interrupt
+  34   1          EA = 0;
+  35   1      
+  36   1          instant_effective_init();
+  37   1      
+  38   1      
+  39   1          // begin catching interrupt
+  40   1          EA = 1;
+  41   1      
+  42   1          while(1) {
+  43   2              // Feed dog
+  44   2              reset_watch_dog();
+  45   2              if(INT_PROC & KEY_DUTY)
+  46   2              {
+  47   3                  key_duty_task();
+  48   3                  // power_detect();
+  49   3                  INT_PROC &= ~KEY_DUTY;
+  50   3                  continue;
+  51   3              }
+  52   2      
+  53   2              if(INT_PROC & UART_DUTY)
+  54   2              {
+  55   3                  uart_process_recieved();
+C51 COMPILER V9.52.0.0   MAIN                                                              03/03/2016 15:49:51 PAGE 2   
+
+  56   3                  INT_PROC &= ~UART_DUTY;
+  57   3                  continue;
+  58   3              }
+  59   2              // 5ms检测一次
+  60   2              if(INT_PROC & TICK_DUTY)
+  61   2              {
+  62   3                  if (USART_RX_Block(&COM1)) 
+  63   3                      INT_PROC |= UART_DUTY;
+  64   3                  cycle_based_control();
+  65   3                  led_display_task();
+  66   3                  if(power_status)
+  67   3                      power_level_8bit(power_level);
+  68   3                  else
+  69   3                      power_level_8bit(0);
+  70   3                  INT_PROC &= ~TICK_DUTY;
+  71   3                  continue;            
+  72   3              }
+  73   2      
+  74   2          }
+  75   1      }
+  76          
+  77          
+  78          static void init_system_component() {  
+  79   1          // timer
+  80   1          init_system_tick();
+  81   1      
+  82   1          // ble
+  83   1          BLE_Init();
+  84   1      
+  85   1          //pwm
+  86   1          PWM_Init();
+  87   1          PWM_Pin_Init();
+  88   1      
+  89   1          //KEY
+  90   1          key_io_init();
+  91   1      
+  92   1          power_config_init();
+  93   1      
+  94   1      }
+  95          
+  96          
+  97          // 默认柜锁关闭
+  98          static void init_logic_params() {
+  99   1          init_sync_object();
+ 100   1      
+ 101   1          init_music_cotrol();
+ 102   1      
+ 103   1          display_startup_init();
+ 104   1      }
+ 105          
+ 106          
+ 107          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    137    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+C51 COMPILER V9.52.0.0   MAIN                                                              03/03/2016 15:49:51 PAGE 3   
+
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

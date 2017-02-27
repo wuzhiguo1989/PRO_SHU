@@ -1,0 +1,82 @@
+C51 COMPILER V9.52.0.0   LIGHT                                                             12/27/2016 13:09:29 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LIGHT
+OBJECT MODULE PLACED IN light.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE light.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "light.h"
+   2          #include "jl17467pqw.h"
+   3          #include "share.h"
+   4          #include "beep.h"
+   5          #include "utils.h"
+   6          
+   7          void init_key_io()
+   8          {
+   9   1        pure_input(1,0x20);
+  10   1        pure_input(1,0x10);
+  11   1        pure_input(5,0x10);
+  12   1        pure_input(5,0x20);
+  13   1      }
+  14          
+  15          void key_scan_task()
+  16          {
+  17   1        //  if (!BUZZER)
+  18   1      //     {
+  19   1      //         mute_beep_enable();
+  20   1      //         speak_mode_set |= 0x0100;
+  21   1      //         speak_mode = buzzer;
+  22   1              
+  23   1      //     }
+  24   1      //     else
+  25   1      //         speak_mode_set &= ~0x0100;
+  26   1      
+  27   1      
+  28   1        if(L_KEY)
+  29   1        {
+  30   2          jt17467pqw_set_left_lamps(1);
+  31   2          speak_mode_set |= 0x01;
+  32   2          speak_mode = light_alert;
+  33   2          MUTE = 1;
+  34   2        }
+  35   1        else
+  36   1        {
+  37   2              jt17467pqw_set_left_lamps(0);
+  38   2          speak_mode_set &= ~0x01;
+  39   2        }
+  40   1      
+  41   1        if(R_KEY)
+  42   1        {
+  43   2          jt17467pqw_set_right_lamps(1);
+  44   2          speak_mode_set |= 0x02;
+  45   2              speak_mode = light_alert;
+  46   2             MUTE = 1;
+  47   2        }
+  48   1        else
+  49   1        {
+  50   2      
+  51   2              jt17467pqw_set_right_lamps(0);
+  52   2          speak_mode_set &= ~0x02;
+  53   2        }
+  54   1      
+  55   1        jt17467pqw_set_head_lamps(D_KEY);
+C51 COMPILER V9.52.0.0   LIGHT                                                             12/27/2016 13:09:29 PAGE 2   
+
+  56   1        jt17467pqw_set_bluetooth_linked(BT_IND);
+  57   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    115    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

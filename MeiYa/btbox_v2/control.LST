@@ -1,0 +1,12 @@
+C51 COMPILER V9.52.0.0   CONTROL                                                           03/11/2016 22:50:37 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE CONTROL
+OBJECT MODULE PLACED IN control.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE control.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+*** ERROR C318 OF control.c: can't open file 'control.c'
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  1 ERROR(S)

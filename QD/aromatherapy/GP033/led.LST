@@ -1,0 +1,130 @@
+C51 COMPILER V9.52.0.0   LED                                                               10/08/2016 19:44:15 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LED
+OBJECT MODULE PLACED IN led.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE led.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "led.h"
+   2          #include "utils.h"
+   3          
+   4          
+   5          
+   6          void T1_code()
+   7          {
+   8   1          LED_OUT = 1;
+   9   1          _nop_();
+  10   1          _nop_();
+  11   1          _nop_();
+  12   1          _nop_();
+  13   1          _nop_();
+  14   1          _nop_();
+  15   1          _nop_();
+  16   1          _nop_();
+  17   1          _nop_();
+  18   1          _nop_();
+  19   1          _nop_();
+  20   1          _nop_();
+  21   1          LED_OUT = 0;
+  22   1          _nop_();
+  23   1          _nop_();
+  24   1          _nop_();
+  25   1          _nop_();
+  26   1          _nop_();
+  27   1      }
+  28          
+  29          void T0_code()
+  30          {
+  31   1          LED_OUT = 1;
+  32   1          _nop_();
+  33   1          _nop_();
+  34   1          _nop_();
+  35   1          _nop_();
+  36   1          _nop_();
+  37   1          _nop_();
+  38   1          LED_OUT = 0;
+  39   1          _nop_();
+  40   1          _nop_();
+  41   1          _nop_();
+  42   1          _nop_();
+  43   1          _nop_();
+  44   1          _nop_();
+  45   1          _nop_();
+  46   1          _nop_();
+  47   1          _nop_();
+  48   1          _nop_();
+  49   1          _nop_();
+  50   1          _nop_();
+  51   1      }
+  52          
+  53          
+  54          // // G7G6G5G4G3G2G1G0R7R6R5R4R3R2R1R0B7B6B5B4B3B2B1B0
+  55          void led_color_8bit(led_t *led_config)
+C51 COMPILER V9.52.0.0   LED                                                               10/08/2016 19:44:15 PAGE 2   
+
+  56          {
+  57   1          u8 flag, iterator;
+  58   1          u8 mask = 0x80, t_code = led_config -> green; 
+  59   1          for(iterator = 0; iterator < 8; ++iterator)
+  60   1          {
+  61   2              flag = (t_code & mask) >> 7;
+  62   2              if(flag == 1){
+  63   3                  T1_code();
+  64   3              } else {
+  65   3                  T0_code();
+  66   3              }
+  67   2              t_code <<= 1;
+  68   2          }
+  69   1      
+  70   1          t_code = led_config -> red;
+  71   1          for(iterator = 0; iterator < 8; ++iterator)
+  72   1          {
+  73   2              flag = (t_code & mask) >> 7;
+  74   2              if(flag == 1){
+  75   3                  T1_code();
+  76   3              } else {
+  77   3                  T0_code();
+  78   3              }
+  79   2              t_code <<= 1;
+  80   2          }
+  81   1      
+  82   1          t_code = led_config -> blue;
+  83   1          for(iterator = 0; iterator < 8; ++iterator)
+  84   1          {
+  85   2              flag = (t_code & mask) >> 7;
+  86   2              if(flag == 1){
+  87   3                  T1_code();
+  88   3              } else {
+  89   3                  T0_code();
+  90   3              }
+  91   2              t_code <<= 1;
+  92   2          }
+  93   1      }
+  94          
+  95          
+  96          void led_config_change()
+  97          {
+  98   1          u8 led_index;
+  99   1          for(led_index = 0; led_index < 12; led_index ++)
+ 100   1              led_color_8bit(&led_config_logic[led_index]);  
+ 101   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    215    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----       2
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

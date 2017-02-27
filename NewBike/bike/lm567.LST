@@ -1,0 +1,453 @@
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LM567
+OBJECT MODULE PLACED IN lm567.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE lm567.c OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1           #include "lm567.h"
+   2           #include <stdio.h> 
+   3           #include "string.h" 
+   4           #include "usart.h" 
+   5           #include "task.h" 
+   6          
+   7           #include "sync.h" 
+   8           #include "utils.h" 
+   9           #include "key.h" 
+  10           #include "power.h" 
+  11           #include "beep.h" 
+  12          
+  13          volatile send_id uart_id = open_success;
+  14          static volatile u8 xdata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲
+  15          static volatile u8 xdata RX1_Buffer[COM_RX1_Lenth];    //接收缓冲
+  16          
+  17          #define CMD_BUF_SIZE 20
+  18          static char  xdata command[CMD_BUF_SIZE];
+  19          #define RESP_BUF_SIZE 64
+  20          static char  xdata cached_response_line[RESP_BUF_SIZE];
+  21          
+  22          
+  23          
+  24          void TX1_write2buff(char dat)  
+  25          { 
+  26   1           TX1_Buffer[COM1.TX_write] = dat;        // 装发送缓冲 
+  27   1           if(++COM1.TX_write >= COM_TX1_Lenth)     
+  28   1               COM1.TX_write = 0; 
+  29   1       
+  30   1       
+  31   1           if(COM1.B_TX_busy == 0)                 // 空闲 
+  32   1           {   
+  33   2               COM1.B_TX_busy = 1;                 // 标志忙 
+  34   2               TI = 1;                             // 触发发送中断 
+  35   2           } 
+  36   1       }
+  37          
+  38          void TX_str2buff(char *str, u8 len) {
+  39   1          int i;  
+  40   1          for (i=0; i<len; ++i)
+  41   1          { 
+  42   2              TX1_write2buff(i);
+  43   2              TX1_write2buff(str[i]);
+  44   2          }
+  45   1      } 
+  46           
+  47          void send_at_command(char *r)
+  48          {
+  49   1          u8 i;  
+  50   1          u8 len = strlen(r);
+  51   1          for (i=0; i<len; ++i)
+  52   1              TX1_write2buff(r[i]);
+  53   1      }
+  54          
+  55          
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 2   
+
+  56          // LOCK
+  57           void uart_send_test_lock()
+  58           {
+  59   1          strcpy(command, "+LOCK:(0-1)\r\nOK\r\n");
+  60   1          send_at_command(command);
+  61   1       } 
+  62            
+  63           void uart_send_open_success()
+  64           {
+  65   1          strcpy(command, "OK\r\n");
+  66   1          send_at_command(command);
+  67   1       } 
+  68          
+  69          
+  70           void uart_send_open_fail()
+  71           {
+  72   1          strcpy(command, "+CCSHU:ERROR\r\n");
+  73   1          send_at_command(command);
+  74   1       } 
+  75          
+  76          
+  77           void uart_send_lock_by_hand_success()
+  78           {
+  79   1          strcpy(command, "+LOCK:1\r\nOK\r\n");
+  80   1          send_at_command(command);
+  81   1       }
+  82          
+  83           void uart_send_lock_by_hand_fail()
+  84           {
+  85   1          strcpy(command, "+LOCK:0\r\nERROR\r\n");
+  86   1          send_at_command(command);
+  87   1       }
+  88          
+  89           void uart_send_status_now()
+  90           {
+  91   1          // todo
+  92   1          if(status == on)
+  93   1            strcpy(command, "+LOCK:0\r\nOK\r\n");
+  94   1          else
+  95   1            strcpy(command, "+LOCK:1\r\nOK\r\n");
+  96   1          send_at_command(command);
+  97   1       }
+  98          
+  99          
+ 100           // ALARM
+ 101           void uart_send_test_beep_success()
+ 102           {
+ 103   1          strcpy(command, "+ALARM:(0-1)\r\nOK\r\n");
+ 104   1          send_at_command(command);
+ 105   1          // uart_send_command(beep_callback_success);
+ 106   1       }
+ 107          
+ 108            void uart_send_beep_success()
+ 109           {
+ 110   1          strcpy(command, "OK\r\n");
+ 111   1          send_at_command(command);
+ 112   1          // uart_send_command(beep_callback_success);
+ 113   1       }
+ 114          
+ 115           void uart_send_beep_stop(){
+ 116   1          strcpy(command,"+ALARM:0\r\n");
+ 117   1          send_at_command(command);
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 3   
+
+ 118   1       }
+ 119          
+ 120           // ALARMPARA
+ 121          // +ALARMPARA:"KEY","VALUE"\r\nOK\r\n
+ 122            void uart_send_test_alarmpara()
+ 123           {
+ 124   1          strcpy(command, "+ALARMPARA:\"KEY\",\"VALUE\"\r\nOK\r\n");
+ 125   1          send_at_command(command);
+ 126   1          // uart_send_command(beep_callback_success);
+ 127   1       }
+ 128          
+ 129           void uart_send_alarmpara_success()
+ 130           {
+ 131   1          strcpy(command, "OK\r\n");
+ 132   1          send_at_command(command);
+ 133   1       }
+ 134          
+ 135           void uart_send_alarmpara_fail(){
+ 136   1          strcpy(command, "+CCSHU:ERROR\r\n");
+ 137   1          send_at_command(command);
+ 138   1       }
+ 139          
+ 140          
+ 141           // RESERVE
+ 142           void uart_send_test_schedule_callback()
+ 143           {
+ 144   1          strcpy(command, "+RESERVE:(0-1)\r\nOK\r\n");
+ 145   1          send_at_command(command);
+ 146   1       }
+ 147          
+ 148            void uart_send_schedule_callback()
+ 149           {
+ 150   1          strcpy(command, "OK\r\n");
+ 151   1          send_at_command(command);
+ 152   1       }
+ 153          
+ 154           void uart_send_status_schedule_callback()
+ 155           {
+ 156   1          strcpy(command, "+RESERVE:1\r\nOK\r\n");
+ 157   1          send_at_command(command);
+ 158   1       }
+ 159          
+ 160          
+ 161           // FINDME 
+ 162           void uart_send_test_trace_callback()
+ 163           {
+ 164   1          strcpy(command, "+FINDME:1\r\nOK\r\n");
+ 165   1          send_at_command(command);
+ 166   1       }
+ 167          
+ 168           void uart_send_trace_callback()
+ 169           {
+ 170   1          strcpy(command, "OK\r\n");
+ 171   1          send_at_command(command);
+ 172   1       }
+ 173          
+ 174           void uart_send_trace_fail_callback()
+ 175           {
+ 176   1          strcpy(command, "+CCSHU:ERROR\r\n");
+ 177   1          send_at_command(command);
+ 178   1       }
+ 179          
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 4   
+
+ 180          // +DIAGNOSE?
+ 181           void uart_send_diagnose_callback(){
+ 182   1          strcpy(command, "OK\r\n");
+ 183   1          send_at_command(command);
+ 184   1       }
+ 185           
+ 186           static void GetString1(u8 *received) {
+ 187   1          u8 len = COM1.RX_Cnt;  
+ 188   1          if (COM1.RX_Cnt)  
+ 189   1              memcpy(received, RX1_Buffer, COM1.RX_Cnt); 
+ 190   1           received[COM1.RX_Cnt] = '\0';
+ 191   1           memset(RX1_Buffer, 0, COM_RX1_Lenth); 
+ 192   1           USART_Finish_Rx(&COM1); 
+ 193   1       } 
+ 194          
+ 195          
+ 196            static void uart_dispatch_cmd(const char  *cmd) {
+ 197   1              if (memcmp(cmd, "+LOCK", 5) == 0) {
+ 198   2                  if(cmd[5] == '=' && cmd[6] == '?'){
+ 199   3                      // AT+LOCK=?
+ 200   3                      // 返回：+LOCK:(0-1)\r\nOK\r\n
+ 201   3                      uart_send_test_lock();
+ 202   3                      reload_sleep_count_down();
+ 203   3                  } else if(cmd[5] == '=' && cmd[6] == '0'){
+ 204   3                      // AT+LOCK=0
+ 205   3                      // 开锁
+ 206   3                      // 返回OK\r\n
+ 207   3                      cancle_lock_count_down();
+ 208   3                      cnt_on_time_plus = 0;
+ 209   3                      k_power_enable();
+ 210   3                      reload_open_count_down();
+ 211   3                      reload_open_beep_count_down();
+ 212   3                      lock_on_detect_signal = 0;
+ 213   3                      led_mode_set = open;
+ 214   3                      led_mode_changed();
+ 215   3                  } else if(cmd[5] == '=' && cmd[6] == '1'){
+ 216   3                      // AT+LOCK=1
+ 217   3                      // 关锁
+ 218   3                      // 返回OK\r\n
+ 219   3                      uart_send_open_success();
+ 220   3                      reload_sleep_count_down();
+ 221   3                  } else if(cmd[5] == '?'){
+ 222   3                      // AT+LOCK=？
+ 223   3                      // 查询状态
+ 224   3                      // todo：return the status after get the status 16 adc
+ 225   3                      k_power_enable();
+ 226   3                      init_lock_para();
+ 227   3                      // uart_send_status_now();
+ 228   3                  } else {
+ 229   3                      reload_sleep_count_down();
+ 230   3                  } 
+ 231   2                  
+ 232   2              } else if(memcmp(cmd, "+ALARM=", 7) == 0){
+ 233   2                  if(cmd[7] == '?'){
+ 234   3                      // AT+ALARM=?
+ 235   3                      // 测试
+ 236   3                      uart_send_test_beep_success();
+ 237   3                  } else if(cmd[7] == '1'){
+ 238   3                      // AT+ALARM=1
+ 239   3                      // 报警开启
+ 240   3                      // OK\r\n
+ 241   3                      speak_alter_pca_init();
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 5   
+
+ 242   3                      speak_mode = alter_beep;
+ 243   3                      reload_alter_beep_count_down();
+ 244   3                      uart_send_beep_success();
+ 245   3                  } else if(cmd[7] == '0'){
+ 246   3                      // AT+ALARM=0
+ 247   3                      // 取消
+ 248   3                      uart_send_beep_success();
+ 249   3                      cancle_alter_count_down();
+ 250   3                      speak_beep_disable();
+ 251   3                      speak_mode = mute;
+ 252   3                      reload_sleep_count_down();
+ 253   3                  } else {
+ 254   3                      reload_sleep_count_down();
+ 255   3                  } 
+ 256   2              } else if(memcmp(cmd, "+ALARMPARA=", 11) == 0){
+ 257   2                  if(cmd[11] == '?'){
+ 258   3                      // AT+ALARMPARA=?
+ 259   3                      // 返回：+ALARMPARA:"KEY","VALUE"\r\nOK\r\n
+ 260   3                      uart_send_test_alarmpara();
+ 261   3                  } else {
+ 262   3                      // AT+ALARMPARA="KEY","VALUE"
+ 263   3                      if (cmd[11] == '\"' && cmd[16] == '\"'){
+ 264   4                          alter_time = ((cmd[12] - '0') * 1000 + (cmd[13] - '0') * 100 + (cmd[14] - '0') * 10 + 
+             -(cmd[15] - '0')) / 20;
+ 265   4                          alter_flag = cmd[19] - '0';
+ 266   4                          uart_send_alarmpara_success(); 
+ 267   4                      } else if(cmd[11] == '\"' && cmd[17] == '\"'){
+ 268   4                          alter_time = ((cmd[12] - '0') * 10000 + (cmd[13] - '0') * 1000 + (cmd[14] - '0') * 100
+             - + (cmd[15] - '0') * 10 + (cmd[16] - '0')) / 20;
+ 269   4                          alter_flag = cmd[20] - '0';
+ 270   4                          uart_send_alarmpara_success();
+ 271   4                      } else {
+ 272   4                          // 返回
+ 273   4                          uart_send_alarmpara_fail();
+ 274   4                          reload_sleep_count_down();
+ 275   4                      }
+ 276   3      
+ 277   3                  } 
+ 278   2              } else if (memcmp(cmd, "+FINDME=", 8) == 0) {
+ 279   2                  if(cmd[8] == '?'){
+ 280   3                      // AT+FINDME=?
+ 281   3                      uart_send_test_trace_callback();
+ 282   3                  } else if(cmd[8] == '1'){
+ 283   3                      // AT+FINDME=?
+ 284   3                      // 检测锁状态
+ 285   3                      // 返回：+ALARM:(0-1)\r\nOK\r\n
+ 286   3                      // reload_sleep_count_down();
+ 287   3                      reload_cnt_for_beep();
+ 288   3                      reload_trace_beep_count_down();
+ 289   3                      led_mode_set = trace;
+ 290   3                      led_mode_changed();
+ 291   3                  } else {
+ 292   3                      reload_sleep_count_down();
+ 293   3                  } 
+ 294   2              } else if(memcmp(cmd, "+RESERVE=", 9) == 0){
+ 295   2                  if(cmd[9] == '?'){
+ 296   3                      // AT+LOCK=?
+ 297   3                      // 返回：+ALARM:(0-1)\r\nOK\r\n
+ 298   3                      uart_send_status_schedule_callback();
+ 299   3                  } else if(cmd[9] == '1') {
+ 300   3                      // AT+LOCK=<status>
+ 301   3                      // 开锁或关锁
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 6   
+
+ 302   3                      // 返回OK\r\n
+ 303   3                      reload_schedule_sleep_count_down();
+ 304   3                      led_mode_set = schedule;
+ 305   3                      led_mode_changed();
+ 306   3                      uart_send_schedule_callback();
+ 307   3                  } else if(cmd[9] == '0') {
+ 308   3                      // AT+LOCK=<status>
+ 309   3                      // 开锁或关锁
+ 310   3                      // 返回OK\r\n
+ 311   3                      led_display_stop();
+ 312   3                      reload_sleep_count_down();
+ 313   3                      uart_send_schedule_callback();
+ 314   3                  } else {
+ 315   3                      reload_sleep_count_down();
+ 316   3                  } 
+ 317   2              } 
+ 318   1              // AT+DIAGNOSE􀒘
+ 319   1              else if(memcmp(cmd, "+DIAGNOSE?", 10) == 0){
+ 320   2                  uart_send_diagnose_callback();
+ 321   2                  reload_sleep_count_down();
+ 322   2              } 
+ 323   1              else {
+ 324   2                  reload_sleep_count_down();
+ 325   2              } 
+ 326   1      }
+ 327          
+ 328          
+ 329          void uart_cache_response(char xdata *r) 
+ 330          {
+ 331   1          char *token;
+ 332   1          memset(cached_response_line, 0, RESP_BUF_SIZE);
+ 333   1          strcpy(cached_response_line, r);
+ 334   1          token = strchr(cached_response_line, '+');
+ 335   1          if(token)
+ 336   1              uart_dispatch_cmd(token);
+ 337   1          else 
+ 338   1              reload_sleep_count_down();
+ 339   1      }
+ 340          
+ 341          static void PrintString1(u8 *puts) 
+ 342           { 
+ 343   1           for (; *puts != 0;  puts++)  TX1_write2buff(*puts);     //遇到停止符0结束 
+ 344   1       } 
+ 345           
+ 346           
+ 347           void uart_Init() { 
+ 348   1          memset(TX1_Buffer, 0, COM_TX1_Lenth); 
+ 349   1          memset(RX1_Buffer, 0, COM_RX1_Lenth); 
+ 350   1          USART_Init(&COM1); 
+ 351   1       
+ 352   1       
+ 353   1          S1_8bit(); 
+ 354   1          S1_BRT_UseTimer2();     // S1 BRT Use Timer2; 
+ 355   1          S1_Int_Enable();        // 允许中断 
+ 356   1          S1_RX_Enable();         // Rx 接收允许 
+ 357   1       
+ 358   1          S1_USE_P30P31(); 
+ 359   1          quasi_bidirectional(3, 0x01); 
+ 360   1          quasi_bidirectional(3, 0x02);
+ 361   1       
+ 362   1           S1_TXD_RXD_OPEN(); 
+ 363   1       
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 7   
+
+ 364   1       
+ 365   1           USART_Share_Timer2(); 
+ 366   1       } 
+ 367           
+ 368          
+ 369           void uart_process_recieved() { 
+ 370   1           // char received[COM_RX1_Lenth];
+ 371   1           if(led_mode_set != schedule)
+ 372   1              cancle_sleep_count_down();
+ 373   1           uart_cache_response(RX1_Buffer);
+ 374   1           USART_Finish_Rx(&COM1);  
+ 375   1       } 
+ 376           
+ 377           
+ 378          // Handle usart trigger: receiving "\r\n" 
+ 379          void UART1_int (void) interrupt UART1_VECTOR 
+ 380           { 
+ 381   1          if(RI) 
+ 382   1           { 
+ 383   2               RI = 0; 
+ 384   2       
+ 385   2       
+ 386   2               if(COM1.B_RX_OK == 0) 
+ 387   2               { 
+ 388   3                   if (COM1.RX_Cnt >= COM_RX1_Lenth) 
+ 389   3                       COM1.RX_Cnt = 0; 
+ 390   3                   RX1_Buffer[COM1.RX_Cnt++] = SBUF; 
+ 391   3                   COM1.RX_TimeOut = TimeOutSet1; 
+ 392   3               } 
+ 393   2       
+ 394   2       
+ 395   2           } 
+ 396   1       
+ 397   1       
+ 398   1           if(TI) 
+ 399   1           { 
+ 400   2               TI = 0; 
+ 401   2               if(COM1.TX_read != COM1.TX_write) 
+ 402   2               { 
+ 403   3                   SBUF = TX1_Buffer[COM1.TX_read]; 
+ 404   3                   if(++COM1.TX_read >= COM_TX1_Lenth)      
+ 405   3                       COM1.TX_read = 0; 
+ 406   3               } 
+ 407   2               else     
+ 408   2                   COM1.B_TX_busy = 0; 
+ 409   2           } 
+ 410   1       } 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1887    ----
+   CONSTANT SIZE    =    254    ----
+   XDATA SIZE       =    168    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1      16
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 13:47:49 PAGE 8   
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

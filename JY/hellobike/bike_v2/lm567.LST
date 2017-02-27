@@ -1,0 +1,607 @@
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LM567
+OBJECT MODULE PLACED IN lm567.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE lm567.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1           #include "lm567.h" 
+   2           #include "string.h" 
+   3           #include "usart.h" 
+   4           #include "task.h" 
+   5           #include "stdio.h" 
+   6           #include "sync.h" 
+   7           #include "utils.h" 
+   8           #include "key.h" 
+   9           #include "power.h" 
+  10           #include "beep.h" 
+  11           
+  12          
+  13          #define SLIP_START 0x7E
+  14          #define SLIP_END   0x7F
+  15          #define SLIP_REPL  0x7D
+  16          #define SLIP_ESC   0x20
+  17          #define CMD_CNT    8
+  18          #define CNT_MAX_LOCK_RESEND 600
+  19          
+  20          
+  21          volatile u16 cnt_lock = 1;
+  22          volatile u8 cnt_lock_by_use = 0;
+  23          volatile u8 cnt_restart = 1;
+  24          volatile u8 lock_from_control = 0;
+  25          
+  26          static volatile u8 xdata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲
+  27          static volatile u8 xdata RX1_Buffer[COM_RX1_Lenth];    //接收缓冲
+  28          
+  29          static code u8 open_callback_success[] = {0x7E, 0x81, 0x00, 0x00, 0x81, 0x7F};
+  30          static code u8 open_callback_fail[] = {0x7E, 0x81, 0x00, 0x01, 0x82, 0x7F};
+  31          static code u8 lock_callback_by_hand_success[] = {0x7E, 0x84, 0x00, 0x00, 0x84, 0x7F};
+  32          static code u8 lock_callback_by_hand_fail[] = {0x7E, 0x84, 0x00, 0x01, 0x85, 0x7F};
+  33          static code u8 beep_callback_success[] = {0x7E, 0x83, 0x00, 0x00, 0x83, 0x7F};
+  34          static code u8 beep_callback_fail[] = {0x7E, 0x83, 0x00, 0x00, 0x83, 0x7F};
+  35          static code u8 version1_callback[] = {0x7E, 0x88, 0x01, 0x00, 0x89, 0x7F};
+  36          static code u8 schedule_success[] =  {0x7E, 0x86, 0x00, 0x00, 0x86, 0x7F};
+  37          static code u8 trace_success[] = {0x7E, 0x87, 0x00, 0x00, 0x87, 0x7F};
+  38          
+  39          
+  40          
+  41           
+  42           void TX1_write2buff(const u8 dat)  
+  43           { 
+  44   1           TX1_Buffer[COM1.TX_write] = dat;        // 装发送缓冲 
+  45   1           if(++COM1.TX_write >= COM_TX1_Lenth)     
+  46   1               COM1.TX_write = 0; 
+  47   1           if(COM1.B_TX_busy == 0)                 // 空闲 
+  48   1           {   
+  49   2               COM1.B_TX_busy = 1;                 // 标志忙 
+  50   2               TI = 1;                             // 触发发送中断 
+  51   2           } 
+  52   1       } 
+  53           
+  54          void uart_send_command(u8 *r)
+  55          {
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 2   
+
+  56   1          u8 i;
+  57   1          for(i = 0; i < CMD_CNT; i++)
+  58   1              TX1_write2buff(r[i]);
+  59   1      }
+  60          
+  61            
+  62           void uart_send_open_success()
+  63           {
+  64   1          u8 lock_status;
+  65   1          TX1_write2buff(0x7E);
+  66   1          TX1_write2buff(0x81);
+  67   1          if(INT1 == 0 && status == off){
+  68   2              lock_status = 0x00;
+  69   2          } else if(INT1 == 1 && status == on){
+  70   2              lock_status = 0x11;
+  71   2          } else if(INT1 == 0 && status == on){
+  72   2              lock_status = 0x10;
+  73   2          } else if(INT1 == 1 && status == off){
+  74   2              lock_status = 0x01;
+  75   2          }
+  76   1          TX1_write2buff(lock_status);
+  77   1          TX1_write2buff(0x00);
+  78   1          TX1_write2buff(0x81 + lock_status);
+  79   1          TX1_write2buff(0x7F);
+  80   1         // uart_send_command(open_callback_success);
+  81   1       } 
+  82          
+  83          
+  84           void uart_send_lock_success()
+  85           {
+  86   1          u8 lock_status;
+  87   1          TX1_write2buff(0x7E);
+  88   1          TX1_write2buff(0x82);
+  89   1          if(INT1 == 0 && status == off){
+  90   2              lock_status = 0x00;
+  91   2          } else if(INT1 == 1 && status == on){
+  92   2              lock_status = 0x11;
+  93   2          } else if(INT1 == 0 && status == on){
+  94   2              lock_status = 0x10;
+  95   2          } else if(INT1 == 1 && status == off){
+  96   2              lock_status = 0x01;
+  97   2          }
+  98   1          TX1_write2buff(lock_status);
+  99   1          TX1_write2buff(0x00);
+ 100   1          TX1_write2buff(0x82 + lock_status);
+ 101   1          TX1_write2buff(0x7F);
+ 102   1      }
+ 103           
+ 104          
+ 105           void uart_send_open_fail()
+ 106           {
+ 107   1          uart_send_command(open_callback_fail);
+ 108   1       } 
+ 109          
+ 110          
+ 111            void uart_send_beep_success(u8 cmd)
+ 112           {
+ 113   1          TX1_write2buff(0x7E);
+ 114   1          TX1_write2buff(0x83);
+ 115   1          TX1_write2buff(cmd);
+ 116   1          TX1_write2buff(0x00);
+ 117   1          TX1_write2buff(0x83 + cmd);
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 3   
+
+ 118   1          TX1_write2buff(0x7F);
+ 119   1          // uart_send_command(beep_callback_success);
+ 120   1       }
+ 121          
+ 122           //  void uart_send_lock_by_hand_success()
+ 123           // {
+ 124           //    uart_send_command(lock_callback_by_hand_success);
+ 125           // }
+ 126          
+ 127           //   void uart_send_lock_by_hand_fail()
+ 128           // {
+ 129           //    uart_send_command(lock_callback_by_hand_fail);
+ 130           // }
+ 131          
+ 132           void uart_send_lock_by_hand_success()
+ 133           {
+ 134   1          u8 lock_status;
+ 135   1          u8 cmd;
+ 136   1          if(INT1 == 0 && status == off){
+ 137   2              lock_status = 0x00;
+ 138   2          } else if(INT1 == 1 && status == on){
+ 139   2              lock_status = 0x11;
+ 140   2          } else if(INT1 == 0 && status == on){
+ 141   2              lock_status = 0x10;
+ 142   2          } else if(INT1 == 1 && status == off){
+ 143   2              lock_status = 0x01;
+ 144   2          }
+ 145   1          cmd = 0x84 + cnt_lock_by_use + lock_status;
+ 146   1          TX1_write2buff(0x7E);
+ 147   1          TX1_write2buff(0x84);
+ 148   1          TX1_write2buff(lock_status);
+ 149   1          if(cnt_lock_by_use == 0x7E){
+ 150   2              TX1_write2buff(0x7D);
+ 151   2              TX1_write2buff(0x5E);
+ 152   2          } else if(cnt_lock_by_use == 0x7F){
+ 153   2              TX1_write2buff(0x7D);
+ 154   2              TX1_write2buff(0x5F);
+ 155   2          } else if(cnt_lock_by_use == 0x7D){
+ 156   2              TX1_write2buff(0x7D);
+ 157   2              TX1_write2buff(0x5D);
+ 158   2          } else {
+ 159   2             TX1_write2buff(cnt_lock_by_use); 
+ 160   2          }
+ 161   1      
+ 162   1          if(cmd == 0x7E){
+ 163   2              TX1_write2buff(0x7D);
+ 164   2              TX1_write2buff(0x5E);
+ 165   2          } else if(cmd == 0x7F){
+ 166   2              TX1_write2buff(0x7D);
+ 167   2              TX1_write2buff(0x5F);
+ 168   2          } else if(cmd == 0x7D){
+ 169   2              TX1_write2buff(0x7D);
+ 170   2              TX1_write2buff(0x5D);
+ 171   2          } else {
+ 172   2             TX1_write2buff(cmd); 
+ 173   2          }
+ 174   1          TX1_write2buff(0x7F);
+ 175   1          if(cnt_lock == CNT_MAX_LOCK_RESEND){
+ 176   2              resend_lock_command_signal = 0;
+ 177   2          }
+ 178   1          //     u8 cmd = 0x84 + cnt_lock;
+ 179   1          // TX1_write2buff(0x7E);
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 4   
+
+ 180   1          // TX1_write2buff(0x84);
+ 181   1          // TX1_write2buff(0x00);
+ 182   1          // if(cnt_lock == 0x7E){
+ 183   1          //     TX1_write2buff(0x7D);
+ 184   1          //     TX1_write2buff(0x5E);
+ 185   1          // } else if(cnt_lock == 0x7F){
+ 186   1          //     TX1_write2buff(0x7D);
+ 187   1          //     TX1_write2buff(0x5F);
+ 188   1          // } else if(cnt_lock == 0x7D){
+ 189   1          //     TX1_write2buff(0x7D);
+ 190   1          //     TX1_write2buff(0x5D);
+ 191   1          // } else {
+ 192   1          //    TX1_write2buff(cnt_lock); 
+ 193   1          // }
+ 194   1      
+ 195   1          // if(cmd == 0x7E){
+ 196   1          //     TX1_write2buff(0x7D);
+ 197   1          //     TX1_write2buff(0x5E);
+ 198   1          // } else if(cmd == 0x7F){
+ 199   1          //     TX1_write2buff(0x7D);
+ 200   1          //     TX1_write2buff(0x5F);
+ 201   1          // } else if(cmd == 0x7D){
+ 202   1          //     TX1_write2buff(0x7D);
+ 203   1          //     TX1_write2buff(0x5D);
+ 204   1          // } else {
+ 205   1          //    TX1_write2buff(cmd); 
+ 206   1          // }
+ 207   1          // TX1_write2buff(0x7F);
+ 208   1      }
+ 209          
+ 210           void uart_send_lock_by_hand_fail()
+ 211           {
+ 212   1          u8 cmd = 0x85 + cnt_lock;
+ 213   1          TX1_write2buff(0x7E);
+ 214   1          TX1_write2buff(0x84);
+ 215   1          TX1_write2buff(0x01);
+ 216   1          if(cnt_lock == 0x7E){
+ 217   2              TX1_write2buff(0x7D);
+ 218   2              TX1_write2buff(0x5E);
+ 219   2          } else if(cnt_lock == 0x7F){
+ 220   2              TX1_write2buff(0x7D);
+ 221   2              TX1_write2buff(0x5F);
+ 222   2          } else if(cnt_lock == 0x7D){
+ 223   2              TX1_write2buff(0x7D);
+ 224   2              TX1_write2buff(0x5D);
+ 225   2          } else {
+ 226   2             TX1_write2buff(cnt_lock); 
+ 227   2          }
+ 228   1      
+ 229   1          if(cmd == 0x7E){
+ 230   2              TX1_write2buff(0x7D);
+ 231   2              TX1_write2buff(0x5E);
+ 232   2          } else if(cmd == 0x7F){
+ 233   2              TX1_write2buff(0x7D);
+ 234   2              TX1_write2buff(0x5F);
+ 235   2          } else if(cmd == 0x7D){
+ 236   2              TX1_write2buff(0x7D);
+ 237   2              TX1_write2buff(0x5D);
+ 238   2          } else {
+ 239   2             TX1_write2buff(cmd); 
+ 240   2          }
+ 241   1          TX1_write2buff(0x7F);
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 5   
+
+ 242   1       }
+ 243          
+ 244           void uart_send_status_now(u8 lock_status, u8 sys_status)
+ 245           {
+ 246   1          TX1_write2buff(0x7E);
+ 247   1          TX1_write2buff(0x85);
+ 248   1          TX1_write2buff(lock_status);
+ 249   1          TX1_write2buff(sys_status);
+ 250   1          TX1_write2buff(0x85 + lock_status + sys_status);
+ 251   1          TX1_write2buff(0x7F);
+ 252   1       }
+ 253          
+ 254           void uart_send_schedule_callback()
+ 255           {
+ 256   1          // uart_send_command(schedule_success);
+ 257   1          TX1_write2buff(0x7E);
+ 258   1          TX1_write2buff(0x86);
+ 259   1          TX1_write2buff(0x00);
+ 260   1          TX1_write2buff(0x00);
+ 261   1          TX1_write2buff(0x86);
+ 262   1          TX1_write2buff(0x7F);
+ 263   1       }
+ 264          
+ 265            void uart_send_trace_callback()
+ 266           {
+ 267   1          // TX1_write2buff(0x7E);
+ 268   1          // TX1_write2buff(0x86);
+ 269   1          // TX1_write2buff(0x00);
+ 270   1          // TX1_write2buff(0x00);
+ 271   1          // TX1_write2buff(0x86);
+ 272   1          // TX1_write2buff(0x7F);
+ 273   1       }
+ 274          
+ 275          
+ 276           void uart_send_status_restart()
+ 277           {
+ 278   1          u8 cmd;
+ 279   1          u8 lock_status;
+ 280   1          if(INT1 == 0 && status == off){
+ 281   2              lock_status = 0x00;
+ 282   2          } else if(INT1 == 1 && status == on){
+ 283   2              lock_status = 0x11;
+ 284   2          } else if(INT1 == 0 && status == on){
+ 285   2              lock_status = 0x10;
+ 286   2          } else if(INT1 == 1 && status == off){
+ 287   2              lock_status = 0x01;
+ 288   2          }
+ 289   1          cmd = 0x87 + lock_status + cnt_restart;
+ 290   1          TX1_write2buff(0x7E);
+ 291   1          TX1_write2buff(0x87);
+ 292   1          TX1_write2buff(lock_status);
+ 293   1          if(cnt_restart == 0x7E){
+ 294   2              TX1_write2buff(0x7D);
+ 295   2              TX1_write2buff(0x5E);
+ 296   2          } else if(cnt_restart == 0x7F){
+ 297   2              TX1_write2buff(0x7D);
+ 298   2              TX1_write2buff(0x5F);
+ 299   2          } else if(cnt_restart == 0x7D){
+ 300   2              TX1_write2buff(0x7D);
+ 301   2              TX1_write2buff(0x5D);
+ 302   2          } else {
+ 303   2             TX1_write2buff(cnt_restart); 
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 6   
+
+ 304   2          }
+ 305   1      
+ 306   1          if(cmd == 0x7E){
+ 307   2              TX1_write2buff(0x7D);
+ 308   2              TX1_write2buff(0x5E);
+ 309   2          } else if(cmd == 0x7F){
+ 310   2              TX1_write2buff(0x7D);
+ 311   2              TX1_write2buff(0x5F);
+ 312   2          } else if(cmd == 0x7D){
+ 313   2              TX1_write2buff(0x7D);
+ 314   2              TX1_write2buff(0x5D);
+ 315   2          } else {
+ 316   2             TX1_write2buff(cmd); 
+ 317   2          }
+ 318   1          TX1_write2buff(0x7F);
+ 319   1          if(cnt_restart == 0xFF){
+ 320   2              cancel_resend_restart_count_down();
+ 321   2              EX1 = ENABLE; 
+ 322   2              reload_sleep_count_down();
+ 323   2          }
+ 324   1      }
+ 325          
+ 326           void uart_send_version1_callback(){
+ 327   1          uart_send_command(version1_callback);
+ 328   1       }
+ 329           
+ 330           static void GetString1(u8 *received) {
+ 331   1          u8 len = COM1.RX_Cnt;  
+ 332   1          if (COM1.RX_Cnt)  
+ 333   1              memcpy(received, RX1_Buffer, COM1.RX_Cnt); 
+ 334   1           received[COM1.RX_Cnt] = '\0';
+ 335   1           memset(RX1_Buffer, 0, COM_RX1_Lenth); 
+ 336   1           USART_Finish_Rx(&COM1); 
+ 337   1       } 
+ 338          
+ 339          
+ 340            static void uart_dispatch_cmd(const char  *r) {
+ 341   1              switch(r[0])
+ 342   1              {
+ 343   2                  // 开锁命令
+ 344   2                  case 0x01:
+ 345   2                      cancle_lock_count_down();
+ 346   2                      // cancel_lock_delay();
+ 347   2                      cnt_on_time_plus = 0;
+ 348   2                      k_power_enable();
+ 349   2                      power_open_work();
+ 350   2                      lock_on_detect_signal = 0;
+ 351   2                      reload_open_count_down();
+ 352   2                      // reload_open_beep_count_down();
+ 353   2                      // reload_open_delay();
+ 354   2                      // lock_on_detect_signal = 0;
+ 355   2                      led_mode_set = open;
+ 356   2                      led_mode_changed();
+ 357   2                      break;
+ 358   2                  case 0x02:
+ 359   2                      cancle_sleep_count_down();
+ 360   2                      cancle_open_count_down();
+ 361   2                      // cancel_open_delay();
+ 362   2                      reload_lock_count_down();
+ 363   2                      k_power_enable();
+ 364   2                      lock_off_detect_signal = 0;
+ 365   2                      // reload_lock_delay();
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 7   
+
+ 366   2                      lock_from_control = 1;
+ 367   2                      cnt_off_time_plus = 0; 
+ 368   2                      break;
+ 369   2                  // 报警命令
+ 370   2                  case 0x03:
+ 371   2                      if(r[1] == 0x02)
+ 372   2                      {
+ 373   3                          if(led_mode_set != schedule)
+ 374   3                              reload_alter_sleep_count_down();
+ 375   3                          speak_alter_pca_init();
+ 376   3                          speak_beep_enable();
+ 377   3                          speak_mode = alter_beep;
+ 378   3                          reload_alter_beep_count_down();
+ 379   3                      }
+ 380   2                      cpu_wake_up_enable();
+ 381   2                      uart_send_beep_success(r[1]);
+ 382   2                      cpu_wake_up_disable();
+ 383   2                      break;
+ 384   2      
+ 385   2                  // 接收到上锁命令
+ 386   2                  case 0x04:
+ 387   2                      // 无需反馈
+ 388   2                      resend_lock_command_signal = 0;
+ 389   2                      cnt_lock = 1;
+ 390   2                      reload_sleep_count_down();
+ 391   2                      break;
+ 392   2      
+ 393   2                  // 查询状态
+ 394   2                  case 0x05:
+ 395   2                      k_power_enable();
+ 396   2                      init_lock_para();
+ 397   2                      break;
+ 398   2      
+ 399   2                  // 预约/取消预约
+ 400   2                  case 0x06:
+ 401   2                      // 不需要 直接反馈
+ 402   2                      if(r[1] == 0x01){
+ 403   3                          reload_schedule_sleep_count_down();
+ 404   3                          led_mode_set = schedule;
+ 405   3                          led_mode_changed();
+ 406   3                      } else if(r[1] == 0x00){
+ 407   3                          cancle_sleep_count_down();
+ 408   3                          // 准备睡眠
+ 409   3                          led_display_stop();
+ 410   3                          // led_mode_changed();
+ 411   3                          reload_sleep_count_down();
+ 412   3                      }
+ 413   2      
+ 414   2                      INT_PROC |= SCHE_DUTY;
+ 415   2                      break;
+ 416   2                  // 重启响应命令     
+ 417   2                  case 0x07:
+ 418   2                      cnt_restart = 1;
+ 419   2                      cancel_resend_restart_count_down();
+ 420   2                      reload_sleep_count_down();
+ 421   2                      break;
+ 422   2                  // 查询版本号
+ 423   2                  case 0x08:
+ 424   2                      uart_send_version1_callback();
+ 425   2                      reload_sleep_count_down();
+ 426   2                      break;
+ 427   2                  default:
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 8   
+
+ 428   2                      if(led_mode_set != schedule) 
+ 429   2                          reload_sleep_count_down();
+ 430   2                      break;           
+ 431   2              }
+ 432   1       
+ 433   1        }
+ 434          
+ 435          
+ 436          void uart_cache_response(char xdata *r, char xdata *received) 
+ 437          {
+ 438   1          u8 index = 1, cmd_index = 0;
+ 439   1          u8 cmd[COM_RX1_Lenth - 2];
+ 440   1          u8 len = COM1.RX_Cnt;
+ 441   1          cancle_sleep_count_down();
+ 442   1          if(len < 6 || len > 9){
+ 443   2              USART_Finish_Rx(&COM1);
+ 444   2              reload_sleep_count_down();
+ 445   2          }
+ 446   1          else 
+ 447   1          {
+ 448   2              memset(received, 0, COM_RX1_Lenth);
+ 449   2              memcpy(received, r, sizeof(char) * len);
+ 450   2              USART_Finish_Rx(&COM1);
+ 451   2              if(received[0] == SLIP_START && received[len - 1] == SLIP_END)
+ 452   2              {
+ 453   3              // todo 处理 check
+ 454   3                  while(index <= len - 2)
+ 455   3                  {
+ 456   4                      if(received[index] != SLIP_REPL){
+ 457   5                          cmd[cmd_index] = received[index];
+ 458   5                          cmd_index ++;
+ 459   5                          index ++;
+ 460   5                      } 
+ 461   4                      else
+ 462   4                      {
+ 463   5                          if(received[index + 1] == 0x5E){
+ 464   6                              cmd[cmd_index] = 0x7E;
+ 465   6                          } else if(received[index + 1] == 0x5F){
+ 466   6                           cmd[cmd_index] = 0x7F;
+ 467   6                          } else if(received[index + 1] == 0x5D){
+ 468   6                           cmd[cmd_index] = 0x7D;
+ 469   6                          } else {
+ 470   6                           if(led_mode_set != schedule)
+ 471   6                              reload_sleep_count_down();
+ 472   6                           goto  error_handle;
+ 473   6                          } 
+ 474   5                          cmd_index ++;
+ 475   5                          index = index + 2;
+ 476   5                      }
+ 477   4                      if(cmd[3] == cmd[0] +  cmd[1] + cmd[2]){
+ 478   5                          uart_dispatch_cmd(cmd);
+ 479   5                      } else {
+ 480   5                          if(led_mode_set != schedule)
+ 481   5                          reload_sleep_count_down();
+ 482   5                      }
+ 483   4              
+ 484   4                  }
+ 485   3              }   
+ 486   2              else
+ 487   2              {
+ 488   3                  if(led_mode_set != schedule)
+ 489   3                      reload_sleep_count_down();
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 9   
+
+ 490   3                  goto  error_handle;
+ 491   3              }
+ 492   2              error_handle: _nop_();
+ 493   2          }
+ 494   1      }
+ 495          
+ 496          static void PrintString1(u8 *puts) 
+ 497           { 
+ 498   1           for (; *puts != 0;  puts++)  TX1_write2buff(*puts);     //遇到停止符0结束 
+ 499   1       } 
+ 500           
+ 501           
+ 502           void uart_Init() { 
+ 503   1          memset(TX1_Buffer, 0, COM_TX1_Lenth); 
+ 504   1          memset(RX1_Buffer, 0, COM_RX1_Lenth); 
+ 505   1          USART_Init(&COM1); 
+ 506   1       
+ 507   1       
+ 508   1          S1_8bit(); 
+ 509   1          S1_BRT_UseTimer2();     // S1 BRT Use Timer2; 
+ 510   1          S1_Int_Enable();        // 允许中断 
+ 511   1          S1_RX_Enable();         // Rx 接收允许 
+ 512   1       
+ 513   1          S1_USE_P30P31(); 
+ 514   1          quasi_bidirectional(3, 0x01); 
+ 515   1          quasi_bidirectional(3, 0x02);
+ 516   1       
+ 517   1           S1_TXD_RXD_OPEN(); 
+ 518   1       
+ 519   1       
+ 520   1           USART_Share_Timer2(); 
+ 521   1       } 
+ 522           
+ 523          
+ 524           void uart_process_recieved() { 
+ 525   1           char received[COM_RX1_Lenth];
+ 526   1           if(led_mode_set != schedule)
+ 527   1              cancle_sleep_count_down();
+ 528   1           uart_cache_response(RX1_Buffer, received);  
+ 529   1       } 
+ 530           
+ 531           
+ 532          // Handle usart trigger: receiving "\r\n" 
+ 533          void UART1_int (void) interrupt UART1_VECTOR 
+ 534           { 
+ 535   1          if(RI) 
+ 536   1           { 
+ 537   2               RI = 0; 
+ 538   2               if(COM1.B_RX_OK == 0) 
+ 539   2               { 
+ 540   3                   if (COM1.RX_Cnt >= COM_RX1_Lenth) 
+ 541   3                       COM1.RX_Cnt = 0; 
+ 542   3                   RX1_Buffer[COM1.RX_Cnt++] = SBUF; 
+ 543   3                   COM1.RX_TimeOut = TimeOutSet1; 
+ 544   3               } 
+ 545   2       
+ 546   2       
+ 547   2           } 
+ 548   1       
+ 549   1       
+ 550   1           if(TI) 
+ 551   1           { 
+C51 COMPILER V9.52.0.0   LM567                                                             01/17/2017 11:51:45 PAGE 10  
+
+ 552   2               TI = 0; 
+ 553   2               if(COM1.TX_read != COM1.TX_write) 
+ 554   2               { 
+ 555   3                   SBUF = TX1_Buffer[COM1.TX_read]; 
+ 556   3                   if(++COM1.TX_read >= COM_TX1_Lenth)      
+ 557   3                       COM1.TX_read = 0; 
+ 558   3               } 
+ 559   2               else     
+ 560   2                   COM1.B_TX_busy = 0; 
+ 561   2           } 
+ 562   1       } 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2001    ----
+   CONSTANT SIZE    =     54    ----
+   XDATA SIZE       =     37      48
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,12 @@
+C51 COMPILER V9.52.0.0   BEEP                                                              03/11/2016 22:50:38 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE BEEP
+OBJECT MODULE PLACED IN beep.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE beep.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+*** ERROR C318 OF beep.c: can't open file 'beep.c'
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  1 ERROR(S)

@@ -1,0 +1,127 @@
+C51 COMPILER V9.52.0.0   BEEP                                                              03/03/2016 19:04:49 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE BEEP
+OBJECT MODULE PLACED IN beep.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE beep.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "beep.h"
+   2          #include "def.h"
+   3          #include "share.h"
+   4          #include "intrins.h"
+   5          
+   6          u16 pca_next_target = 0;
+   7          
+   8          //0：MUTE
+   9          //1：解锁  600hz
+  10          //2：寻车  600hz
+  11          //3：关锁  800\500hz(响一声100、100)
+  12          //4：报警1 800\500hz
+  13          //5：报警2 800\500hz
+  14          //6：启动  500hz
+  15          //7: 喇叭  600hz
+  16          //8: 闪灯  1000hz
+  17          
+  18          u16 pca_next_param[9] = {T4kHz, T600Hz, T600Hz, T800Hz, T500Hz, T600Hz, T500Hz, T600Hz, T1000Hz};
+  19          
+  20          void speak_beep_enable()
+  21          {
+  22   1          if(!MUTE)
+  23   1          {
+  24   2              SPEAK = 0;
+  25   2              SPEAK_TURN = 0;
+  26   2          }
+  27   1          else
+  28   1          {  
+  29   2              if(speak_mode_set & 0xC0)
+  30   2              {
+  31   3                  SPEAK_TURN = ~SPEAK_TURN;
+  32   3                  SPEAK = 0;
+  33   3              }
+  34   2              else
+  35   2              {   
+  36   3                  SPEAK_TURN = 0; 
+  37   3                  SPEAK = ~SPEAK;
+  38   3              }
+  39   2          }
+  40   1      }
+  41          
+  42          void init_beep_io()
+  43          {
+  44   1        push_pull(2, 0x10);
+  45   1          push_pull(2, 0x20);
+  46   1        push_pull(2, 0x40);
+  47   1      }
+  48          
+  49          
+  50          void detect_buzzer_io()
+  51          {
+  52   1        if (!BUZZER)
+  53   1          {
+  54   2              mute_beep_enable();
+  55   2              speak_mode_set |= 0x0100;
+C51 COMPILER V9.52.0.0   BEEP                                                              03/03/2016 19:04:49 PAGE 2   
+
+  56   2              speak_mode = buzzer;
+  57   2              
+  58   2          }
+  59   1          else
+  60   1              speak_mode_set &= ~0x0100;
+  61   1      
+  62   1      }
+  63          
+  64          
+  65          
+  66          
+  67          void speak_init_params() {
+  68   1          CCON = 0;                       //初始化PCA控制寄存器
+  69   1                                          //PCA定时器停止
+  70   1                                          //清除CF标志
+  71   1                                          //清除模块中断标志
+  72   1          CL = 0;
+  73   1          CH = 0;
+  74   1          pca_next_target =  pca_next_target + pca_next_param[0];
+  75   1          CCAP0L = pca_next_target;
+  76   1          CCAP0H = pca_next_target >> 8;
+  77   1          CMOD = 0x00;                    //设置PCA时钟源
+  78   1                                          //禁止PCA定时器溢出中断
+  79   1        CCAPM0 = 0x49;                  //PCA模块0为16位定时器模式
+  80   1          CR = 1;
+  81   1      }
+  82          
+  83          
+  84          //PCA中断 speak发声
+  85          //TODO：解决按键中断speak持续一个周期
+  86          void pca_isr() interrupt 7 using 1 
+  87          {
+  88   1          CCF0 = 0;     //  清中断标志
+  89   1          if(!speak_mode_set){
+  90   2              speak_beep_disable(); 
+  91   2              mute_beep_disable();
+  92   2              speak_mode = mute;
+  93   2              pca_next_target =  pca_next_target + pca_next_param[speak_mode];
+  94   2              CCAP0L = pca_next_target;
+  95   2              CCAP0H = pca_next_target >> 8;       
+  96   2          } else {
+  97   2              speak_beep_enable();
+  98   2              pca_next_target =  pca_next_target + pca_next_param[speak_mode];
+  99   2              CCAP0L = pca_next_target;
+ 100   2              CCAP0H = pca_next_target >> 8;
+ 101   2         }
+ 102   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    155    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     20    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

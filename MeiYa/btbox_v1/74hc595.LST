@@ -1,0 +1,229 @@
+C51 COMPILER V9.52.0.0   74HC595                                                           03/26/2016 21:49:15 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE 74HC595
+OBJECT MODULE PLACED IN 74hc595.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE 74hc595.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          # include "74hc595.h"
+   2          # include "share.h"
+   3          # include "sync.h"
+   4          # include "utils.h"
+   5          # include "task.h"
+   6          
+   7          #define NOT_DISPLAY  10
+   8          
+   9          #define TIME_ICON  0x14
+  10          
+  11          static code u8 const displaycode[12] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F, 0x00, 
+             -0x79};
+  12                             /*    0,    1,    2,    3,    4,    5,    6,    7,    8,    9,   NOT_DISPLAY */
+  13          static code u8 const comcode[6] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20};
+  14                          /*  1,    2,    3,    4,    5,    6    */
+  15          static code u8 const power[6] = {0x00, 0x01, 0x03, 0x0B, 0x2B, 0x6B};
+  16                        /*  1,    2,    3,    4,    5,    6    */
+  17          static code u8 const color[25] = {0x01, 0x05, 0x15, 0x11, 0x0D, 0x1D, 0x31, 0x35, 0x3D, 0x03, 0x07, 0x17, 
+             -0x13, 0x0F, 0x1F, 0x3F, 0x33, 0x37, 0x04, 0x14, 0x34, 0x0C, 0x1C, 0x10, 0x30};
+  18          
+  19          u8 LED8[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  20          
+  21          u8 display_index = 0;
+  22          
+  23          
+  24          void Led_io_init(void)
+  25          {
+  26   1        push_pull(1, 0x02);
+  27   1        push_pull(1, 0x01);
+  28   1        push_pull(2, 0x80);
+  29   1        push_pull(2, 0x40);
+  30   1        push_pull(2, 0x20);
+  31   1        push_pull(2, 0x10);
+  32   1        push_pull(2, 0x04);
+  33   1        push_pull(2, 0x02);
+  34   1        push_pull(2, 0x01);
+  35   1        push_pull(3, 0x80);
+  36   1        push_pull(3, 0x40);
+  37   1        push_pull(3, 0x20);
+  38   1        push_pull(3, 0x10); 
+  39   1      }
+  40          
+  41          
+  42          void Delay3000ms()    //@24.000MHz
+  43          {
+  44   1        unsigned char i, j, k;
+  45   1      
+  46   1        _nop_();
+  47   1        _nop_();
+  48   1        i = 125;
+  49   1        j = 250;
+  50   1        k = 250;
+  51   1        do
+  52   1        {
+  53   2          do
+C51 COMPILER V9.52.0.0   74HC595                                                           03/26/2016 21:49:15 PAGE 2   
+
+  54   2          {
+  55   3            while (--k);
+  56   3          } while (--j);
+  57   2        } while (--i);
+  58   1      }
+  59          
+  60          static void display_seg(u8 i, u8 number)
+  61          {
+  62   1        if(i == 0){
+  63   2          DISPLAY_D(0) = number;
+  64   2        }else if(i == 1){
+  65   2          DISPLAY_D(1) = number;
+  66   2        }else if(i == 2){
+  67   2          DISPLAY_D(2) = number;
+  68   2        }else if(i == 3){
+  69   2          DISPLAY_D(3) = number;
+  70   2        }else if(i == 4){
+  71   2          DISPLAY_D(4) = number;
+  72   2        }else if(i == 5){
+  73   2          DISPLAY_D(5) = number;
+  74   2        }else if(i == 6){
+  75   2          DISPLAY_D(6) = number;
+  76   2        }
+  77   1      }
+  78          
+  79          
+  80          void display_number(u8 dat)
+  81          {       
+  82   1          u8  i;
+  83   1          for(i = 0; i < 7; i++)
+  84   1          {
+  85   2              if(dat & 0x01)
+  86   2                display_seg(i, 1);
+  87   2              else
+  88   2                display_seg(i, 0);
+  89   2              dat >>= 1;
+  90   2          }
+  91   1      }
+  92          
+  93          static void display_com(u8 i, u8 number)
+  94          {
+  95   1        if(i == 0){
+  96   2          DISPLAY_C(0) = number;
+  97   2        }else if(i == 1){
+  98   2          DISPLAY_C(1) = number;
+  99   2        }else if(i == 2){
+ 100   2          DISPLAY_C(2) = number;
+ 101   2        }else if(i == 3){
+ 102   2          DISPLAY_C(3) = number;
+ 103   2        }else if(i == 4){
+ 104   2          DISPLAY_C(4) = number;
+ 105   2        }else if(i == 5){
+ 106   2          DISPLAY_C(5) = number;
+ 107   2        }
+ 108   1      }
+ 109          
+ 110          void display_com_number(u8 dat)
+ 111          {       
+ 112   1          u8  i;
+ 113   1          for(i = 0; i < 6; i++)
+ 114   1          {
+ 115   2              if(dat & 0x01)
+C51 COMPILER V9.52.0.0   74HC595                                                           03/26/2016 21:49:15 PAGE 3   
+
+ 116   2                display_com(i, 1);
+ 117   2              else
+ 118   2                display_com(i, 0);
+ 119   2              dat >>= 1;
+ 120   2          }
+ 121   1      }
+ 122          
+ 123          
+ 124          
+ 125          
+ 126          void Display_digit_on_screen(void)
+ 127          {
+ 128   1         if (power_error_code == 2)
+ 129   1         {
+ 130   2          // 分钟
+ 131   2            LED8[0] = 10;
+ 132   2            LED8[1] = 10;
+ 133   2          // 秒
+ 134   2            LED8[3] = 11;
+ 135   2            LED8[4] = 1;
+ 136   2          // 电源指示灯 + 时间
+ 137   2          LED8[2] = power_level;
+ 138   2          // 灯光
+ 139   2            LED8[5] = color_level;
+ 140   2         }
+ 141   1         else
+ 142   1         {
+ 143   2          // 分钟
+ 144   2            LED8[0] = local_time.minute / 10;
+ 145   2            LED8[1] = local_time.minute % 10;
+ 146   2          // 秒
+ 147   2            LED8[3] = local_time.second / 10;
+ 148   2            LED8[4] = local_time.second % 10;
+ 149   2          // 电源指示灯 + 时间
+ 150   2          LED8[2] = power_level;
+ 151   2          // 灯光
+ 152   2            LED8[5] = color_level;
+ 153   2          }
+ 154   1      } 
+ 155          
+ 156          void DisplayScanInit(void)
+ 157          {   
+ 158   1        display_com_number(~0x3F);
+ 159   1        display_number(0x7F);
+ 160   1          Delay3000ms();
+ 161   1      }
+ 162          
+ 163          
+ 164          void DisplayScan(void)
+ 165          {   
+ 166   1      //  先消隐 
+ 167   1        display_number(0x00);
+ 168   1          display_com_number(~comcode[display_index]); 
+ 169   1      // 显示数据
+ 170   1          if(display_index == 0 || display_index == 1 || display_index == 3 || display_index == 4)
+ 171   1          {
+ 172   2            if(!status_mb_key)
+ 173   2            {
+ 174   3              display_number(0x00);
+ 175   3              time_colon_icon = 0;
+ 176   3            } 
+ 177   2            else
+C51 COMPILER V9.52.0.0   74HC595                                                           03/26/2016 21:49:15 PAGE 4   
+
+ 178   2              display_number(displaycode[LED8[display_index]]);     //输出段码
+ 179   2          }  else if(display_index == 2) {
+ 180   2          if(!time_colon_icon || (power_error_code == 2))
+ 181   2            display_number(power[LED8[display_index]]);
+ 182   2          else
+ 183   2            display_number(TIME_ICON | power[LED8[display_index]]);     
+ 184   2        } else {
+ 185   2          if(!status_mb_key)
+ 186   2          {
+ 187   3            display_number(0x00);
+ 188   3          } else if(status_mb_key == 1 || status_mb_key == 3){
+ 189   3            display_number(0x3F);
+ 190   3          } else if(status_mb_key == 2){
+ 191   3            display_number(color[LED8[display_index]]);
+ 192   3          }
+ 193   2        }
+ 194   1      
+ 195   1        display_com_number(~comcode[display_index]);          //输出位码
+ 196   1          if(++display_index >= 6)
+ 197   1            display_index = 0;  //8位结束回0
+ 198   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    494    ----
+   CONSTANT SIZE    =     49    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      7    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

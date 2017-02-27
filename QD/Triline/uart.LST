@@ -1,0 +1,135 @@
+C51 COMPILER V9.52.0.0   UART                                                              10/11/2015 15:46:04 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN uart.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE uart.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "uart.h"
+   2          #include "sync.h"
+   3          #include "def.h"
+   4          #include "display.h"
+   5          #include "shared.h"
+   6          #include "intrins.h"
+   7          
+   8          static BOOL busy = NO;
+   9          static u8 uart_buffer;
+  10          
+  11          void init_uart() {
+  12   1        SCON = 0x50;                // 设置串口为8位可变波特率
+  13   1          T2L = 0x20;                 
+  14   1          T2H = 0xfe;                 // 9600 bps
+  15   1          AUXR |= 0x14;               // T2为1T模式, 并启动定时器2
+  16   1          AUXR |= 0x01;               // 选择定时器2为串口1的波特率发生器
+  17   1        PS = 1;           // 高优先级
+  18   1        uart_enable();
+  19   1      }
+  20          
+  21          // CAUTIONS! DON't CALL THIS rapidly
+  22          void send_raw_data(  u8 dat) {
+  23   1        while (busy);                   //  等待前一个数据发送完成
+  24   1          busy = YES;                      
+  25   1          SBUF = dat;                     //  发送当前数据
+  26   1      }
+  27          
+  28          signal_t recieve_data_from_buffer() {
+  29   1        return uart_buffer;
+  30   1      }
+  31          
+  32          /*----------------------------
+  33          Parse Control Signal
+  34          ----------------------------*/
+  35          void 
+  36          parse_crtl_signal(  signal_t recieved_signal) {
+  37   1        // local variable
+  38   1        u8 dispatched_signal;
+  39   1        ctrl_sig_t ctrl_signal;
+  40   1        toggle_t prev_toggle_status = toggle_status;
+  41   1        disp_t prev_display_mode_set = display_mode_set;
+  42   1      
+  43   1        uart_disable();
+  44   1        // 控制信号 第1和第2位 
+  45   1        dispatched_signal = (recieved_signal & 0x03);
+  46   1        ctrl_signal = (ctrl_sig_t)dispatched_signal;
+  47   1        // 数据 第3、4、5、6位
+  48   1        dispatched_signal = (recieved_signal & 0x3C) >> 2;
+  49   1      
+  50   1        if (ctrl_signal == switch_on_off) {
+  51   2          // recieved toggle status is 0x01(OFF) OR 0x02(ON) 
+  52   2          if (check_toggle_status(dispatched_signal)) {
+  53   3            toggle_status = dispatched_signal - 1;
+  54   3            ctrl_toggle_status_response(prev_toggle_status);
+  55   3          }
+C51 COMPILER V9.52.0.0   UART                                                              10/11/2015 15:46:04 PAGE 2   
+
+  56   2          else if(dispatched_signal == 0x05)
+  57   2          {
+  58   3            display_mode_set = (disp_t)0;
+  59   3            ctrl_display_mode_response(prev_display_mode_set);
+  60   3          }
+  61   2          else if(dispatched_signal == 0x0A)
+  62   2          {
+  63   3            display_mode_set = (disp_t)14;
+  64   3            ctrl_display_mode_response(prev_display_mode_set);
+  65   3          }
+  66   2        } else if (ctrl_signal == switch_display_mode) {
+  67   2          // Check
+  68   2          if (check_display_mode_type(dispatched_signal)) {
+  69   3            display_mode_set = (disp_t)dispatched_signal;
+  70   3            ctrl_display_mode_response(prev_display_mode_set);
+  71   3          }
+  72   2        } else if (ctrl_signal == adjust_lumins_level) {
+  73   2          // recieved lumins level start from 0x01
+  74   2          if (check_lumins_level(dispatched_signal))
+  75   2            lumins_level_set = dispatched_signal - 1;
+  76   2            // lumins_level responsed each impluse dected
+  77   2        } else if (ctrl_signal == adjust_speed_level) {
+  78   2          // recieved speed level start from 0x01
+  79   2          if (check_speed_level(dispatched_signal))
+  80   2            speed_level = dispatched_signal - 1;
+  81   2            // speed_level responsed each cycle(5ms)
+  82   2      
+  83   2        } else {
+  84   2          // Error Ctrl & Do nothing
+  85   2          _nop_();
+  86   2        }
+  87   1        uart_enable();
+  88   1      }
+  89          
+  90          void com_isr() interrupt 4 using 2    // serial com 
+  91          {
+  92   1        if (RI) {
+  93   2          INT_PROC |= UART_PROC;
+  94   2          exint_disable(); 
+  95   2          uart_buffer = SBUF;
+  96   2          RI = 0;
+  97   2          exint_enable();
+  98   2        }
+  99   1        if (TI) {
+ 100   2              TI = 0;                 
+ 101   2              busy = NO;        
+ 102   2          }
+ 103   1      
+ 104   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    255    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =      1       3
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+C51 COMPILER V9.52.0.0   UART                                                              10/11/2015 15:46:04 PAGE 3   
+
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

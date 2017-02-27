@@ -1,0 +1,129 @@
+C51 COMPILER V9.52.0.0   ADC                                                               03/26/2016 21:49:14 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE ADC
+OBJECT MODULE PLACED IN adc.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE adc.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "adc.h"
+   2          #include "intrins.h"
+   3          #include "share.h"
+   4          #include "key.h"
+   5          #include "utils.h"
+   6          
+   7          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+   8          #define adc_bat_channel 3
+   9          #define adc_power_in_out 2
+  10          #define ADC_POWER_IN   0x0060
+  11          
+  12          void init_adc()
+  13          {
+  14   1        // P12
+  15   1        pure_input(1, 0x40);
+  16   1        // P13
+  17   1        pure_input(1, 0x80);
+  18   1      
+  19   1        P1ASF |= 0x0C;
+  20   1        ADC_CONTR = ADC_POWER | ADC_SPEED;
+  21   1      }
+  22          
+  23          
+  24          static u16 GetADCResult(u8 channel)
+  25          {
+  26   1        ADC_RES = 0;
+  27   1        ADC_RESL = 0;
+  28   1        // 选通道需要清除之前的通道
+  29   1        ADC_CONTR &= 0xF8;
+  30   1        ADC_CONTR |= channel;
+  31   1        ADC_CONTR |= ADC_START;
+  32   1        _nop_();                        
+  33   1        _nop_();
+  34   1        _nop_();
+  35   1        _nop_();
+  36   1        wait_adc_finish();              
+  37   1        ADC_CONTR &= ~ADC_FLAG;         
+  38   1        return ((ADC_RES << 2) | ADC_RESL);
+  39   1      }
+  40          
+  41          static code u8 const power_level_count[5] = {27, 32, 34, 36, 38};
+  42          
+  43          void power_level_cal()
+  44          {
+  45   1        u8 i;
+  46   1        u16 battery = 0; 
+  47   1        u16 adc_value = 0;
+  48   1        for(i = 0; i < 16; i++)
+  49   1          adc_value += GetADCResult(adc_bat_channel);
+  50   1        adc_value = adc_value >> 4;
+  51   1        battery = 25 * 1024 / adc_value;
+  52   1        if(battery < power_level_count[0]){
+  53   2          power_level = 0;
+  54   2        } else if(battery >= power_level_count[0] && battery < power_level_count[1]){
+  55   2          power_level = 1;
+C51 COMPILER V9.52.0.0   ADC                                                               03/26/2016 21:49:14 PAGE 2   
+
+  56   2        } else if(battery >= power_level_count[1] && battery < power_level_count[2]){
+  57   2          power_level = 2;
+  58   2        } else if(battery >= power_level_count[2] && battery < power_level_count[3]){
+  59   2          power_level = 3;
+  60   2        } else if(battery >= power_level_count[3] && battery < power_level_count[4]){
+  61   2          power_level = 4;
+  62   2        } else if(battery >= power_level_count[4]){
+  63   2          power_level = 5;
+  64   2        }
+  65   1        // 充电时闪烁
+  66   1        if(!CHG)
+  67   1        {
+  68   2            power_level = charge_power;
+  69   2            charge_power ++;
+  70   2            if(charge_power > 5)
+  71   2              charge_power = 0;
+  72   2        }
+  73   1      }
+  74          
+  75          
+  76          // 返回值：0充电 1充电完成 2有错误 3正常倒计时 4正常
+  77          u8 power_detect_in()
+  78          {
+  79   1        u8 i; 
+  80   1        u16 adc_value = 0;
+  81   1        if(!STY || !CHG)
+  82   1        {
+  83   2          return 0;
+  84   2        }
+  85   1        else
+  86   1        {
+  87   2          for(i = 0; i < 16; i++)
+  88   2            adc_value += GetADCResult(adc_power_in_out);
+  89   2          adc_value = adc_value >> 4;
+  90   2          // 短路
+  91   2          if(adc_value < ADC_POWER_IN)
+  92   2          {
+  93   3            charge_power = 0;
+  94   3            POUT = 0;
+  95   3            return 2;
+  96   3          }
+  97   2          // 正常
+  98   2          else
+  99   2          {
+ 100   3            charge_power = 0;
+ 101   3            return 1;
+ 102   3          }
+ 103   2        }
+ 104   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    355    ----
+   CONSTANT SIZE    =      5    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

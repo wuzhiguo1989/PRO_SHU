@@ -1,0 +1,486 @@
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SIM900A
+OBJECT MODULE PLACED IN .\list\sim900a.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE sim900a.c OMF2 BROWSE DEBUG PRINT(.\list\sim900a.lst) TABS(2) OBJECT(.\list
+                    -\sim900a.obj)
+
+line level    source
+
+   1          #include "sim900a.h"
+   2          #include "task.h"
+   3          #include "extension.h"
+   4          #include <string.h>
+   5          #include <stdio.h>
+   6          #include <ctype.h>
+   7          
+   8          workflow_t xdata bearer_profile_setup;
+   9          volatile u8 xdata network_status = NETWORK_STATUS_OFFLINE;
+  10          
+  11          #define CMD_BUF_SIZE  256
+  12          static char xdata command[CMD_BUF_SIZE];
+  13          static void send_at_command(char *cmd) {
+  14   1        int len = strlen(cmd);
+  15   1        TX_str2buff(COM[SIM900A_UART_ID], cmd, len);
+  16   1      }
+  17          
+  18          #define RESP_BUF_SIZE 256
+  19          static char xdata cached_response[RESP_BUF_SIZE];
+  20          char xdata *sim900a_cached_response = cached_response;
+  21          static char xdata cached_response_line[RESP_BUF_SIZE];
+  22          
+  23          // --------------------------------------------------------------------------
+  24          #define SIM900A_RESPONSE_TYPE_EMPTY         1
+  25          #define SIM900A_RESPONSE_TYPE_ECHO          2
+  26          #define SIM900A_RESPONSE_TYPE_EXEC          3
+  27          #define SIM900A_RESPONSE_TYPE_UNSOLICITED     4
+  28          #define SIM900A_RESPONSE_TYPE_CANDIDATE       0
+  29          
+  30          static void sim900a_unsolicited_response(char *token);
+  31          static u8 sim900a_response_type(char *token, int line_len);
+  32          
+  33          static bool isEcho(char xdata *str) {
+  34   1        return strncmp(str, SIM900A_REQUEST_PREFIX, strlen(SIM900A_REQUEST_PREFIX)) == 0;
+  35   1      }
+  36          
+  37          static bool isATExecResponse(char xdata *str) {
+  38   1        return (
+  39   1          (strcmp(str, SIM900A_RESPONSE_ERROR) == 0) || 
+  40   1          (strcmp(str, SIM900A_RESPONSE_DEFAULT) == 0)
+  41   1        );
+  42   1      }
+  43          
+  44          // TODO: not fully supported
+  45          static bool isUnsolicitedResponse(char xdata *str, int len) {
+  46   1        if (startsWith(str, SIM900A_URC_CME_ERROR)) {
+  47   2          return true;
+  48   2        }
+  49   1      
+  50   1        if (startsWith(str, SIM900A_URC_CMS_ERROR)) {
+  51   2          return true;
+  52   2        }
+  53   1      
+  54   1        return (len > 1 && strpos(str, '+') == 0);
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 2   
+
+  55   1      }
+  56          
+  57          // --------------------------------------------------------------------------
+  58          static chk_res_t bps_wf_check_response(char *response);
+  59          static bool bps_wf_callback(char *response, int len);
+  60          static void bps_wf_start();
+  61          static void bps_wf_retry_cb();
+  62          static void bps_wf_timeout();
+  63          static void bps_wf_go(u8 task_id);
+  64          
+  65          void sim900a_init() {
+  66   1        bearer_profile_setup.uart_id = SIM900A_UART_ID;
+  67   1        bearer_profile_setup.workflow_id = SIM900A_BEARER_PROFILE_WORKFLOW_ID;
+  68   1        bearer_profile_setup.task_id = TASK_ID_NONE;
+  69   1        bearer_profile_setup.processing = 0;
+  70   1        bearer_profile_setup.callback = bps_wf_callback;
+  71   1        bearer_profile_setup.start = bps_wf_start;
+  72   1        bearer_profile_setup.timeout = bps_wf_timeout;
+  73   1        bearer_profile_setup.clean = NULL;
+  74   1        bearer_profile_setup.go = bps_wf_go;
+  75   1        workflow_registration[SIM900A_BEARER_PROFILE_WORKFLOW_ID] = &bearer_profile_setup;
+  76   1      
+  77   1        call_for_duty(CONN_CHECK_DUTY);
+  78   1      }
+  79          
+  80          void sim900a_connect() {
+  81   1        start_workflow(&bearer_profile_setup);
+  82   1      }
+  83          
+  84          int sim900a_cache_response(char xdata *r) {
+  85   1        u8 len = COM[SIM900A_UART_ID]->RX_Cnt;
+  86   1        memset(cached_response, 0, RESP_BUF_SIZE);
+  87   1        
+  88   1        if (len < RESP_BUF_SIZE) {
+  89   2          r[len] = '\0';
+  90   2        }
+  91   1      
+  92   1        if (len > RESP_BUF_SIZE) return 0;
+  93   1      
+  94   1        // copy r -> cached_response until [find "\0" or finish r]
+  95   1        // CRASH if: sizeof(r) > sizeof(cached_response)
+  96   1        strcpy(cached_response, r);
+  97   1        return len;
+  98   1      }
+  99          
+ 100          // #define get_line() token = strtok(NULL, "\r\n"); continue;
+ 101          
+ 102          // UART<SIM900A_UART_ID> RX dispatcher 
+ 103          // SIM900A based workflow will work.
+ 104          void sim900a_dispatch_response(char xdata *r) {
+ 105   1        char *token; 
+ 106   1      
+ 107   1        memset(cached_response_line, 0, RESP_BUF_SIZE);
+ 108   1        strcpy(cached_response_line, r);
+ 109   1      
+ 110   1        // token is ripped from "\r\n"
+ 111   1        token = strtok(cached_response_line, "\r\n");
+ 112   1        while(token != NULL) {
+ 113   2          int line_len = strlen(token);
+ 114   2          u8 token_type = sim900a_response_type(token, line_len);
+ 115   2          bool processed = false;
+ 116   2      
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 3   
+
+ 117   2          printf("Token[%d]:%s\r\n", line_len,token);
+ 118   2      
+ 119   2          // May workflow is waiting for Unsolicited
+ 120   2          if (token_type != SIM900A_RESPONSE_TYPE_EMPTY &&
+ 121   2            token_type != SIM900A_RESPONSE_TYPE_ECHO) {
+ 122   3      
+ 123   3            if (current_workflow[SIM900A_UART_ID] != NULL) {
+ 124   4              processed = current_workflow[SIM900A_UART_ID]->callback(token, line_len);
+ 125   4            } 
+ 126   3          }
+ 127   2      
+ 128   2          if (!processed && token_type == SIM900A_RESPONSE_TYPE_UNSOLICITED) {
+ 129   3            sim900a_unsolicited_response(token);
+ 130   3          }
+ 131   2      
+ 132   2          // switch (token_type) {
+ 133   2          // case SIM900A_RESPONSE_TYPE_EMPTY: break;         
+ 134   2          // case SIM900A_RESPONSE_TYPE_ECHO: break;
+ 135   2      
+ 136   2          // case SIM900A_RESPONSE_TYPE_UNSOLICITED: 
+ 137   2          //  sim900a_unsolicited_response(token);
+ 138   2          //  break;
+ 139   2          // case SIM900A_RESPONSE_TYPE_EXEC: // fall through
+ 140   2          // case SIM900A_RESPONSE_TYPE_CANDIDATE:
+ 141   2          //  // May be interested
+ 142   2          //  if (current_workflow[SIM900A_UART_ID] != NULL) {
+ 143   2          //    current_workflow[SIM900A_UART_ID]->callback(token, line_len);
+ 144   2          //  } 
+ 145   2          //  break;
+ 146   2          // default:
+ 147   2          //  break;
+ 148   2          // }
+ 149   2      
+ 150   2          token = strtok(NULL, "\r\n");
+ 151   2        }
+ 152   1      }
+ 153          
+ 154          // -------------------------bearer_profile_setup-----------------------------
+ 155          
+ 156          #define BPS_WF_TASK_CONFIG_CONTYPE_ID     0
+ 157          #define BPS_WF_TASK_CONFIG_APN_ID       1
+ 158          #define BPS_WF_TASK_OPEN_CONTEXT_ID       2
+ 159          
+ 160          #define BEARER_PROFILE_SETUP_WORKFLOW_STEP    3
+ 161          
+ 162          
+ 163          typedef void (*sim900a_task) (void);
+ 164          static code sim900a_task bps_wf_tasks[BEARER_PROFILE_SETUP_WORKFLOW_STEP] = {
+ 165            set_connection_type,          // OK
+ 166            set_bearer_context,           // OK
+ 167            open_bearer_context           // OK
+ 168          };
+ 169          
+ 170          static code char *bps_wf_flow_condition[BEARER_PROFILE_SETUP_WORKFLOW_STEP] = {
+ 171            SIM900A_RESPONSE_DEFAULT,
+ 172            SIM900A_RESPONSE_DEFAULT,
+ 173            SIM900A_RESPONSE_DEFAULT
+ 174          };
+ 175          
+ 176          static code char *bps_wf_terminate_condition[BEARER_PROFILE_SETUP_WORKFLOW_STEP] = {
+ 177            SIM900A_RESPONSE_ERROR,
+ 178            SIM900A_RESPONSE_ERROR,
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 4   
+
+ 179            SIM900A_RESPONSE_ERROR
+ 180          };
+ 181          
+ 182          static volatile u8 xdata bps_wf_tasks_required[BEARER_PROFILE_SETUP_WORKFLOW_STEP] = {
+ 183            true,
+ 184            true,
+ 185            true
+ 186          };
+ 187          
+ 188          // Decide whether Continue | Break | Ignore based on workflow funtionality
+ 189          static chk_res_t bps_wf_check_response(char *response) {
+ 190   1        u8 task_id = bearer_profile_setup.task_id;
+ 191   1      
+ 192   1        if (isEqual(response, bps_wf_flow_condition[task_id])) {
+ 193   2          return success;
+ 194   2        }
+ 195   1      
+ 196   1        if (isEqual(response, bps_wf_terminate_condition[task_id])) {
+ 197   2          return failure;
+ 198   2        }
+ 199   1      
+ 200   1        return ninterested;
+ 201   1      } 
+ 202          
+ 203          static bool bps_wf_callback(char *response, int len) {
+ 204   1        u8 task_id_for_response = bearer_profile_setup.task_id;
+ 205   1        chk_res_t chk_result = bps_wf_check_response(response);
+ 206   1      
+ 207   1        if (chk_result == ninterested) {
+ 208   2          return false;
+ 209   2        }
+ 210   1      
+ 211   1        if (chk_result == failure) {
+ 212   2          finish_workflow_before_next_flow(SIM900A_BEARER_PROFILE_WORKFLOW_ID);
+ 213   2          return true;
+ 214   2        }
+ 215   1      
+ 216   1        // corresponding "\r\nOK\r\n" recieved
+ 217   1        bps_wf_tasks_required[task_id_for_response] = false;
+ 218   1        ++bearer_profile_setup.task_id;
+ 219   1        if (bearer_profile_setup.task_id == BEARER_PROFILE_SETUP_WORKFLOW_STEP) {
+ 220   2          network_status = NETWORK_STATUS_ONLINE;
+ 221   2          finish_workflow_before_next_flow(SIM900A_BEARER_PROFILE_WORKFLOW_ID);
+ 222   2        } else {
+ 223   2          bearer_profile_setup.processing = SIM900A_TIMEOUT;
+ 224   2          continue_workflow_at_next_round(SIM900A_BEARER_PROFILE_WORKFLOW_ID);
+ 225   2        }
+ 226   1        return true;
+ 227   1      }
+*** WARNING C280 IN LINE 203 OF sim900a.c: 'len': unreferenced local variable
+ 228          
+ 229          static void bps_wf_start() {
+ 230   1        u8 id, refresh_id;
+ 231   1        for (id = 0; id < BEARER_PROFILE_SETUP_WORKFLOW_STEP; ++id) {
+ 232   2          if (bps_wf_tasks_required[id]) {
+ 233   3            break;
+ 234   3          }
+ 235   2        }
+ 236   1      
+ 237   1        if (id == BEARER_PROFILE_SETUP_WORKFLOW_STEP) {
+ 238   2          return;
+ 239   2        }
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 5   
+
+ 240   1      
+ 241   1        for (refresh_id = id; refresh_id < BEARER_PROFILE_SETUP_WORKFLOW_STEP; ++refresh_id) {
+ 242   2          bps_wf_tasks_required[refresh_id] = TRUE;
+ 243   2        }
+ 244   1      
+ 245   1        bearer_profile_setup.processing = SIM900A_TIMEOUT;
+ 246   1        bearer_profile_setup.task_id = id;
+ 247   1        continue_workflow_at_next_round(SIM900A_BEARER_PROFILE_WORKFLOW_ID);
+ 248   1      }
+ 249           
+ 250          static void bps_wf_retry_cb() {
+ 251   1        printf("Retry bps_wf\r\n");
+ 252   1        call_for_duty(SAPBR_DUTY);
+ 253   1      }
+ 254          
+ 255          static void bps_wf_timeout() {
+ 256   1        u8 retry_in_sec = SIM900A_RETRY_IN_SEC;
+ 257   1        printf("Retry bps_wf in %bu sec\r\n", retry_in_sec);
+ 258   1        bps_wf_retry.p_callback = bps_wf_retry_cb;
+ 259   1        bps_wf_retry.second = retry_in_sec;
+ 260   1      }
+ 261          
+ 262          static void bps_wf_go(u8 task_id) {
+ 263   1        if (task_id < BEARER_PROFILE_SETUP_WORKFLOW_STEP)
+ 264   1          bps_wf_tasks[task_id]();
+ 265   1      } 
+ 266          
+ 267          // -------------------------bearer_profile_setup-----------------------------
+ 268          // MARK: Self test
+ 269          void bypass() {
+ 270   1        send_at_command("AT\r\n");
+ 271   1      }
+ 272          
+ 273          // TODO
+ 274          bool check_bypass_callback(char *r) {
+ 275   1        char *exec_result;
+ 276   1        char *bypass_cmd;
+ 277   1        int n = sscanf(r, "%[^\r]%*4[\r\n]%s", bypass_cmd, exec_result);
+ 278   1      
+ 279   1        if (n == 2 && strcmp(bypass_cmd, "AT") == 0){
+ 280   2          if (strcmp(exec_result, "OK") == 0) {
+ 281   3      
+ 282   3            return true;
+ 283   3          } 
+ 284   2      
+ 285   2          if (strcmp(exec_result, "ERROR") == 0) {
+ 286   3      
+ 287   3            return true;
+ 288   3          }
+ 289   2        }
+ 290   1        return false;
+ 291   1      }
+ 292          
+ 293          // MARK: Bearer Profile 
+ 294          void set_connection_type() {
+ 295   1        sprintf(command,"AT+SAPBR=3,1,\"Contype\",\"%s\"\r\n", CONFIG_CONN_TYPE);
+ 296   1        send_at_command(command);
+ 297   1        // OK
+ 298   1      }
+ 299          
+ 300          void set_bearer_context() {
+ 301   1        sprintf(command,"AT+SAPBR=3,1,\"APN\",\"%s\"\r\n", CONFIG_APN);
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 6   
+
+ 302   1        send_at_command(command);
+ 303   1        // OK
+ 304   1      }
+ 305          
+ 306          void open_bearer_context() {
+ 307   1        strcpy(command, "AT+SAPBR=1,1\r\n");
+ 308   1        send_at_command(command);
+ 309   1        // OK
+ 310   1      }
+ 311          
+ 312          void close_bearer_context() {
+ 313   1        strcpy(command, "AT+SAPBR=0,1\r\n");
+ 314   1        send_at_command(command);
+ 315   1        // OK
+ 316   1      }
+ 317          
+ 318          void check_bearer_context() {
+ 319   1        strcpy(command, "AT+SAPBR=2,1\r\n");
+ 320   1        send_at_command(command);
+ 321   1        // +SAPBR:1,1,"ip-address"
+ 322   1        // OK
+ 323   1      }
+ 324          
+ 325          // Bearer context query
+ 326          bool check_bearer_context_callback(char *r) {
+ 327   1        char *token; 
+ 328   1        bool processed = false;
+ 329   1        u8 cid, sapbr_code;
+ 330   1        strcpy(cached_response_line, r);
+ 331   1      
+ 332   1        // token is ripped from "\r\n"
+ 333   1        token = strtok(cached_response_line, "\r\n");
+ 334   1        while(token != NULL) {
+ 335   2          
+ 336   2          int n = sscanf(token, "+SAPBR: %bu,%bu", &cid, &sapbr_code);
+ 337   2          // printf("n=%d, cid=%bu, sapbr=%bu\r\n", n, cid, sapbr_code);
+ 338   2          if (n == 2 && cid == 1) {
+ 339   3      
+ 340   3            printf("%bu:+SAPBR: %bu,%bu\r\n", SIM900A_UART_ID + 1, cid, sapbr_code);
+ 341   3            switch (sapbr_code) {
+ 342   4            case 0: // connecting
+ 343   4              // TODO - hard to decide
+ 344   4              break;
+ 345   4            case 1: // connected
+ 346   4              network_status = NETWORK_STATUS_ONLINE;
+ 347   4              break;
+ 348   4            case 2: // closing
+ 349   4              // TODO - hard to decide
+ 350   4              break;
+ 351   4            case 3: // closed
+ 352   4              network_status = NETWORK_STATUS_OFFLINE;
+ 353   4              bps_wf_tasks_required[BPS_WF_TASK_OPEN_CONTEXT_ID] = true;
+ 354   4              call_for_duty(SAPBR_DUTY);
+ 355   4              break;
+ 356   4            default:
+ 357   4              break;
+ 358   4            }
+ 359   3      
+ 360   3            processed = true;
+ 361   3            break;
+ 362   3          }
+ 363   2      
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 7   
+
+ 364   2          token = strtok(NULL, "\r\n");
+ 365   2        }
+ 366   1      
+ 367   1        return processed;
+ 368   1      } 
+ 369          
+ 370          // MARK: HTTP Action
+ 371          void init_http_service() {
+ 372   1        strcpy(command, "AT+HTTPINIT\r\n");
+ 373   1        send_at_command(command);
+ 374   1        // OK
+ 375   1      }
+ 376          
+ 377          void http_service_bind_bearer_profile() {
+ 378   1        set_http_param_with_integer("CID",1);
+ 379   1      }
+ 380          
+ 381          void terminate_http_service() {
+ 382   1        strcpy(command, "AT+HTTPTERM\r\n");
+ 383   1        send_at_command(command);
+ 384   1        // OK
+ 385   1      }
+ 386          
+ 387          void set_http_param_with_integer(char *key, int value) {
+ 388   1        sprintf(command,"AT+HTTPPARA=\"%s\",%d\r\n", key, value);
+ 389   1        send_at_command(command);
+ 390   1        // OK
+ 391   1      }
+ 392          
+ 393          void set_http_param_with_string(char *key, char xdata *value) {
+ 394   1        sprintf(command,"AT+HTTPPARA=\"%s\",\"%s\"\r\n", key, value);
+ 395   1        send_at_command(command);
+ 396   1        // OK
+ 397   1      }
+ 398          
+ 399          void load_post_body_async(int payload_len, int timeout) {
+ 400   1        sprintf(command, "AT+HTTPDATA=%d,%d\r\n", payload_len, timeout);
+ 401   1        send_at_command(command);
+ 402   1        // DOWNLOAD
+ 403   1      }
+ 404          
+ 405          void http_action_get() {
+ 406   1        strcpy(command, "AT+HTTPACTION=0\r\n");
+ 407   1        send_at_command(command);
+ 408   1        // +HTTPACTION:0,code,len
+ 409   1      }
+ 410          
+ 411          void http_action_post() {
+ 412   1        strcpy(command, "AT+HTTPACTION=1\r\n");
+ 413   1        send_at_command(command);
+ 414   1        // +HTTPACTION:1,code,len
+ 415   1      }
+ 416          
+ 417          //  private 
+ 418          static u8 sim900a_response_type(char *token, int line_len) {
+ 419   1        if (isEmpty(token, line_len))  return SIM900A_RESPONSE_TYPE_EMPTY;
+ 420   1        if (isEcho(token)) return SIM900A_RESPONSE_TYPE_ECHO;
+ 421   1        if (isATExecResponse(token)) return SIM900A_RESPONSE_TYPE_EXEC;
+ 422   1        if (isUnsolicitedResponse(token, line_len)) return SIM900A_RESPONSE_TYPE_UNSOLICITED;
+ 423   1      
+ 424   1        return SIM900A_RESPONSE_TYPE_CANDIDATE;
+ 425   1      }
+C51 COMPILER V9.52.0.0   SIM900A                                                           04/07/2016 08:22:26 PAGE 8   
+
+ 426          
+ 427          static void sim900a_unsolicited_response(char *token) {
+ 428   1        printf("URC PoW, token = %s\r\n", token);
+ 429   1        // GPRS is released
+ 430   1        if (isEqual(token, SIM900A_RESPONSE_DEACT)) {
+ 431   2          network_status = NETWORK_STATUS_OFFLINE;
+ 432   2          bps_wf_tasks_required[BPS_WF_TASK_OPEN_CONTEXT_ID] = true;
+ 433   2          // abort workflow anyway
+ 434   2          if (current_workflow[SIM900A_UART_ID] != NULL)
+ 435   2            finish_workflow_before_next_flow(current_workflow[SIM900A_UART_ID]->workflow_id);
+ 436   2      
+ 437   2          // start new SAPBR workflow
+ 438   2          call_for_duty(SAPBR_DUTY);
+ 439   2          return;
+ 440   2        }
+ 441   1      
+ 442   1      }
+ 443          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1742    ----
+   CONSTANT SIZE    =    464    ----
+   XDATA SIZE       =    791    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      2      57
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       2
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

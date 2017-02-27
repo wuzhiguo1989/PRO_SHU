@@ -1,0 +1,647 @@
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE PROCESS
+OBJECT MODULE PLACED IN .\list\process.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE process.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\process.lst) TABS(2) OBJECT(
+                    -.\list\process.obj)
+
+line level    source
+
+   1          #include "process.h"
+   2          #include "uart.h"
+   3          #include "dwscreen.h"
+   4          #include "task.h"
+   5          #include "alert.h"
+   6          #include "e2prom.h"
+   7          
+   8          
+   9          #define STATUS_IDLE       0x01
+  10          #define STATUS_FAN_WORK   0x02
+  11          #define STATUS_SUCTION    0x04
+  12          #define STATUS_INTERCEPT  0x08
+  13          #define STATUS_DISCHARGE  0x10
+  14          #define STATUS_FEED_FULL  0x20
+  15          #define STATUS_SPRAY_WASH 0x40
+  16          
+  17          u8 feed_status;
+  18          id_m identified_status = identified_none;
+  19          bool page_init = 1;
+  20          
+  21          
+  22          void turn_to_page(u8 page)
+  23          {
+  24   1        TX_write2buff(COM[COM2_ID], 0x5A);
+  25   1        TX_write2buff(COM[COM2_ID], 0xA5);
+  26   1        TX_write2buff(COM[COM2_ID], 0x04);
+  27   1        TX_write2buff(COM[COM2_ID], 0x80);
+  28   1        TX_write2buff(COM[COM2_ID], 0x03);
+  29   1        TX_write2buff(COM[COM2_ID], 0x00);
+  30   1        TX_write2buff(COM[COM2_ID], page);
+  31   1      }
+  32          
+  33          
+  34          
+  35          void get_password_from_screen()
+  36          {
+  37   1        TX_write2buff(COM[COM2_ID], 0x5A);
+  38   1        TX_write2buff(COM[COM2_ID], 0xA5);
+  39   1        TX_write2buff(COM[COM2_ID], 0x04);
+  40   1        TX_write2buff(COM[COM2_ID], 0x83);
+  41   1        TX_write2buff(COM[COM2_ID], 0x00);
+  42   1        TX_write2buff(COM[COM2_ID], 0x10);
+  43   1        TX_write2buff(COM[COM2_ID], 0x02);
+  44   1      }
+  45          
+  46          void reset_password_input()
+  47          {
+  48   1        TX_write2buff(COM[COM2_ID], 0x5A);
+  49   1        TX_write2buff(COM[COM2_ID], 0xA5);
+  50   1        TX_write2buff(COM[COM2_ID], 0x07);
+  51   1        TX_write2buff(COM[COM2_ID], 0x82);
+  52   1        TX_write2buff(COM[COM2_ID], 0x00);
+  53   1        TX_write2buff(COM[COM2_ID], 0x10);
+  54   1        TX_write2buff(COM[COM2_ID], 0x00);
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 2   
+
+  55   1        TX_write2buff(COM[COM2_ID], 0x00);  
+  56   1        TX_write2buff(COM[COM2_ID], 0x00);
+  57   1        TX_write2buff(COM[COM2_ID], 0x00);
+  58   1      }
+  59          
+  60          #define page_to_admin_setting_first()   turn_to_page(PAGE_ADMIN_SETTING1)
+  61          #define page_to_guest_setting_first()   turn_to_page(PAGE_GUEST_SETTING1)
+  62          #define page_to_login_on_identify()   turn_to_page(PAGE_PASSWORD_LOGIN)
+  63          
+  64          void page_password_setting_handle_callback()
+  65          {
+  66   1        // reset password screen
+  67   1        reset_password_input();
+  68   1        // pass
+  69   1        if(password == password_adminstrator)
+  70   1        {
+  71   2          identified_status = admin;
+  72   2          page_to_admin_setting_first();
+  73   2          reload_system_no_identify();
+  74   2        }
+  75   1        else if(password == password_guest)
+  76   1        {
+  77   2          identified_status = guest;
+  78   2          page_to_guest_setting_first();
+  79   2          reload_system_no_identify();
+  80   2        }
+  81   1        else 
+  82   1          identified_status = identified_none;
+  83   1        password = 0;
+  84   1      }
+  85          
+  86          // password setting
+  87          void page_password_setting_handle()
+  88          {
+  89   1        start_simple_workflow(DW_UART_ID, get_password_from_screen, page_password_setting_handle_callback);
+  90   1      }
+  91          
+  92          void login_on_setting_handle()
+  93          {
+  94   1        if(identified_status == admin)
+  95   1        {
+  96   2          page_to_admin_setting_first();
+  97   2          reload_system_no_identify();
+  98   2        }
+  99   1        else if(identified_status == guest)
+ 100   1        {
+ 101   2          page_to_guest_setting_first();
+ 102   2          reload_system_no_identify();
+ 103   2        }
+ 104   1        else
+ 105   1          page_to_login_on_identify();
+ 106   1      }
+ 107          
+ 108          // setting init
+ 109          void setting_to_init()
+ 110          {
+ 111   1        // read from e2prom
+ 112   1        reset_all_para();
+ 113   1      
+ 114   1        // init
+ 115   1        update_data_should = true;
+ 116   1        //
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 3   
+
+ 117   1        display_all_para(INDEX_FOR_ADMIN_SET);
+ 118   1        display_all_para(INDEX_FOR_INQUIRY);
+ 119   1      
+ 120   1        page_back_home();
+ 121   1      }
+ 122          
+ 123          void get_param_set_from_screen()
+ 124          {
+ 125   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 126   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 127   1        TX_write2buff(COM[COM2_ID], 0x04);
+ 128   1        TX_write2buff(COM[COM2_ID], 0x83);
+ 129   1        TX_write2buff(COM[COM2_ID], INDEX_FOR_ADMIN_SET >> 8);
+ 130   1        TX_write2buff(COM[COM2_ID], INDEX_FOR_ADMIN_SET);
+ 131   1        TX_write2buff(COM[COM2_ID], 0x0E);
+ 132   1      }
+ 133          
+ 134          
+ 135          
+ 136          
+ 137          void update_setting_callback()
+ 138          {
+ 139   1        display_all_para(INDEX_FOR_INQUIRY);
+ 140   1          // store the value
+ 141   1          store_all_para();
+ 142   1        update_data_should = true;
+ 143   1        page_back_home();
+ 144   1      }
+ 145          
+ 146          
+ 147          void update_setting()
+ 148          {
+ 149   1        start_simple_workflow(DW_UART_ID, get_param_set_from_screen, update_setting_callback);
+ 150   1      }
+ 151          
+ 152          
+ 153          void get_deadline_set_from_screen(){
+ 154   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 155   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 156   1        TX_write2buff(COM[COM2_ID], 0x04);
+ 157   1        TX_write2buff(COM[COM2_ID], 0x83);
+ 158   1        TX_write2buff(COM[COM2_ID], INDEX_FOR_DEADLINE_SET >> 8);
+ 159   1        TX_write2buff(COM[COM2_ID], INDEX_FOR_DEADLINE_SET);
+ 160   1        TX_write2buff(COM[COM2_ID], 0x03);
+ 161   1      }
+ 162          
+ 163          void display_init_deadline(u8 year, u8 month, u8 day){
+ 164   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 165   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 166   1        TX_write2buff(COM[COM2_ID], 0x09);
+ 167   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 168   1        TX_write2buff(COM[COM2_ID], INDEX_FOR_DEADLINE_SET >> 8);
+ 169   1        TX_write2buff(COM[COM2_ID], (u8)INDEX_FOR_DEADLINE_SET);
+ 170   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 171   1        TX_write2buff(COM[COM2_ID], year);
+ 172   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 173   1        TX_write2buff(COM[COM2_ID], month);
+ 174   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 175   1        TX_write2buff(COM[COM2_ID], day);
+ 176   1      }
+ 177          
+ 178          void update_avaiable_deadline(){
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 4   
+
+ 179   1          get_deadline_set_from_screen();
+ 180   1      }
+ 181          
+ 182          void update_feed_lack_signal()
+ 183          {
+ 184   1        update_data_should = true;
+ 185   1      }
+ 186          
+ 187          #define page_to_password_admin() turn_to_page(PAGE_PASSWORD_MD)
+ 188          #define page_to_password_admin_login_on()  turn_to_page(PAGE_PASSWORD_ADMIN)
+ 189          #define page_to_available_admin() turn_to_page(PAGE_AVAILABLE_ADMIN)
+ 190          
+ 191          void page_password_admin_handle_callback()
+ 192          {
+ 193   1        // reset password screen
+ 194   1        reset_password_input();
+ 195   1        // pass
+ 196   1        if(password == password_adminstrator)
+ 197   1        {
+ 198   2          identified_status = admin;
+ 199   2          page_to_password_admin();
+ 200   2          reload_system_no_identify();
+ 201   2        } else if(password == password_super){
+ 202   2            identified_status = super;
+ 203   2          page_to_available_admin();
+ 204   2          reload_system_no_identify();
+ 205   2        }
+ 206   1        password = 0;
+ 207   1      }
+ 208          
+ 209          void page_password_admin_input_handle()
+ 210          {
+ 211   1        start_simple_workflow(DW_UART_ID, get_password_from_screen, page_password_admin_handle_callback);
+ 212   1      }
+ 213          
+ 214          // password admin
+ 215          void page_password_admin_handle()
+ 216          {
+ 217   1        if(identified_status == admin)
+ 218   1        {
+ 219   2          page_to_password_admin();
+ 220   2          reload_system_no_identify();
+ 221   2        }
+ 222   1        else
+ 223   1          page_to_password_admin_login_on();
+ 224   1      }
+ 225          
+ 226          void reset_password_modify_input()
+ 227          {
+ 228   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 229   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 230   1        TX_write2buff(COM[COM2_ID], 0x0B);
+ 231   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 232   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 233   1        TX_write2buff(COM[COM2_ID], 0x14);
+ 234   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 235   1        TX_write2buff(COM[COM2_ID], 0x00);  
+ 236   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 237   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 238   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 239   1        TX_write2buff(COM[COM2_ID], 0x00);  
+ 240   1        TX_write2buff(COM[COM2_ID], 0x00);
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 5   
+
+ 241   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 242   1      }
+ 243          
+ 244          void password_to_init()
+ 245          {
+ 246   1        reset_password_modify_input();
+ 247   1        // read from e2prom
+ 248   1        reset_all_password();
+ 249   1        // init
+ 250   1        identified_status = identified_none;
+ 251   1        count_down_cancel(&password_no_identified);
+ 252   1        // page_back_home();
+ 253   1      }
+ 254          
+ 255          
+ 256          
+ 257          void page_password_modify_handle_callback()
+ 258          {
+ 259   1        // reset password screen
+ 260   1        reset_password_modify_input();
+ 261   1        if(!password_admin_input && password_guest_input)
+ 262   1        {
+ 263   2          password_guest = password_guest_input;
+ 264   2          store_all_password();
+ 265   2      
+ 266   2        } else if(password_admin_input && !password_guest_input)
+ 267   1        {
+ 268   2          password_adminstrator =  password_admin_input;
+ 269   2          store_all_password();
+ 270   2      
+ 271   2        } else if(password_admin_input && password_guest_input)
+ 272   1        {
+ 273   2          password_guest = password_guest_input;
+ 274   2          password_adminstrator =  password_admin_input;
+ 275   2          store_all_password();
+ 276   2        }
+ 277   1      
+ 278   1        password_admin_input = 0;
+ 279   1        password_guest_input = 0;
+ 280   1        // 恢复0
+ 281   1        identified_status = identified_none;
+ 282   1        // todo 
+ 283   1        // cancle count down
+ 284   1        count_down_cancel(&password_no_identified); 
+ 285   1        page_back_home();
+ 286   1      }
+ 287          
+ 288          
+ 289          void get_password_modify_from_screen()
+ 290          {
+ 291   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 292   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 293   1        TX_write2buff(COM[COM2_ID], 0x04);
+ 294   1        TX_write2buff(COM[COM2_ID], 0x83);
+ 295   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 296   1        TX_write2buff(COM[COM2_ID], 0x14);
+ 297   1        TX_write2buff(COM[COM2_ID], 0x04);
+ 298   1      }
+ 299          
+ 300          void modify_password()
+ 301          {
+ 302   1        start_simple_workflow(DW_UART_ID, get_password_modify_from_screen, page_password_modify_handle_callback);
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 6   
+
+ 303   1      }
+ 304          
+ 305          
+ 306          void get_current_page()
+ 307          {
+ 308   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 309   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 310   1        TX_write2buff(COM[COM2_ID], 0x03);
+ 311   1        TX_write2buff(COM[COM2_ID], 0x81);
+ 312   1        TX_write2buff(COM[COM2_ID], 0x03);
+ 313   1        TX_write2buff(COM[COM2_ID], 0x02);
+ 314   1      }
+ 315          
+ 316          
+ 317          void no_oprate_callback()
+ 318          {
+ 319   1        // if page in setting, param value should be replaced with param used now
+ 320   1        // solve the problem with display
+ 321   1        if(page == PAGE_ADMIN_SETTING1 || page == PAGE_ADMIN_SETTING2 || page == PAGE_ADMIN_SETTING3 || page == P
+             -AGE_ADMIN_SETTING4 || page == PAGE_GUEST_SETTING1 || page == PAGE_GUEST_SETTING2 || page == PAGE_TIME_SETTING)
+ 322   1          display_all_para(INDEX_FOR_ADMIN_SET);
+ 323   1        // if page in password_input
+ 324   1        else if(page == PAGE_PASSWORD_MD)
+ 325   1        {
+ 326   2          password_admin_input = 0;
+ 327   2          password_guest_input = 0;
+ 328   2          reset_password_modify_input();    
+ 329   2        }
+ 330   1        else if(page == PAGE_PASSWORD_LOGIN || page == PAGE_PASSWORD_ADMIN)
+ 331   1        {
+ 332   2          password = 0;
+ 333   2          reset_password_input();
+ 334   2        }
+ 335   1        page_back_home();
+ 336   1        page = 0xFF;
+ 337   1      }
+ 338          
+ 339          // back every minute no operate
+ 340          void every_minute_no_operate_call_back()
+ 341          {
+ 342   1        // jude what page is displaying
+ 343   1        start_simple_workflow(DW_UART_ID, get_current_page, no_oprate_callback);
+ 344   1      }
+ 345          
+ 346          
+ 347          
+ 348          
+ 349          void login_off_current_user()
+ 350          {
+ 351   1        identified_status = identified_none;
+ 352   1        // cancle count down
+ 353   1        count_down_cancel(&password_no_identified);  
+ 354   1      }
+ 355          
+ 356          
+ 357          void every_minute_no_identify_call_back()
+ 358          {
+ 359   1        login_off_current_user();
+ 360   1      }
+ 361          
+ 362          
+ 363          
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 7   
+
+ 364          
+ 365          // test
+ 366          void test_reset_para(u16 addr)
+ 367          {
+ 368   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 369   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 370   1        TX_write2buff(COM[COM2_ID], 0x05);
+ 371   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 372   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 373   1        TX_write2buff(COM[COM2_ID], (u8)addr);
+ 374   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 375   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 376   1      }
+ 377          
+ 378          
+ 379          
+ 380          void test_spray_wash_process(u8 value)
+ 381          {
+ 382   1        if(!start_fan_signal)
+ 383   1        {
+ 384   2          if(!value)
+ 385   2          {
+ 386   3            count_down_cancel(&test_spray_wash);
+ 387   3            spray_wash_disable();
+ 388   3          }
+ 389   2          else
+ 390   2          {
+ 391   3            spray_wash_enable();
+ 392   3            reload_test_spray_wash();
+ 393   3          }
+ 394   2        }
+ 395   1        else
+ 396   1          test_reset_para(ADDR_TEST_SPRAY_WASH);
+ 397   1      }
+ 398          
+ 399          void test_suction_process(u8 value)
+ 400          {
+ 401   1        if(!start_fan_signal)
+ 402   1        {
+ 403   2          if(!value)
+ 404   2          {
+ 405   3            count_down_cancel(&test_suction);
+ 406   3            discharge_enable();
+ 407   3          }
+ 408   2          else
+ 409   2          {
+ 410   3            suction_enable();
+ 411   3            reload_test_suction();
+ 412   3          }
+ 413   2        }
+ 414   1        else
+ 415   1          test_reset_para(ADDR_TEST_SUCTION);
+ 416   1      
+ 417   1      }
+ 418          
+ 419          
+ 420          void test_intercept_process(u8 value)
+ 421          {
+ 422   1        if(!start_fan_signal)
+ 423   1        {
+ 424   2          if(!value)
+ 425   2          {
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 8   
+
+ 426   3            count_down_cancel(&test_intercept);
+ 427   3            intercept_disable();
+ 428   3          }
+ 429   2          else
+ 430   2          {
+ 431   3            intercept_enable();
+ 432   3            reload_test_intercept();
+ 433   3          }
+ 434   2        }
+ 435   1        else
+ 436   1          test_reset_para(ADDR_TEST_INTERCEPT);
+ 437   1          
+ 438   1      }
+ 439          
+ 440          void test_beep_process(u8 value)
+ 441          {
+ 442   1        if(!start_fan_signal)
+ 443   1        {
+ 444   2            if(!value)
+ 445   2            {
+ 446   3              count_down_cancel(&test_beep);
+ 447   3              INT_PROC |= ALTER_BEEP_CLOSE_DUTY;
+ 448   3            }
+ 449   2            else
+ 450   2            {
+ 451   3              INT_PROC |= ALTER_BEEP_DUTY;
+ 452   3            reload_test_beep();
+ 453   3          }
+ 454   2        }
+ 455   1        else
+ 456   1          test_reset_para(ADDR_TEST_BEEP);
+ 457   1          
+ 458   1      }
+ 459          
+ 460          void test_fan_process(u8 value)
+ 461          {
+ 462   1        if(!start_fan_signal)
+ 463   1        {
+ 464   2          if(!value)
+ 465   2            {
+ 466   3              count_down_cancel(&test_fan);
+ 467   3              fan_work_disable();
+ 468   3            }
+ 469   2            else
+ 470   2            {
+ 471   3            fan_work_enable();
+ 472   3            reload_test_fan();
+ 473   3          }
+ 474   2        }
+ 475   1        else
+ 476   1          test_reset_para(ADDR_TEST_FAN);
+ 477   1          
+ 478   1      }
+ 479          
+ 480          void test_reset_all_para()
+ 481          {
+ 482   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 483   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 484   1        TX_write2buff(COM[COM2_ID], 0x0F);
+ 485   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 486   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 487   1        TX_write2buff(COM[COM2_ID], 0x05);
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 9   
+
+ 488   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 489   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 490   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 491   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 492   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 493   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 494   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 495   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 496   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 497   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 498   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 499   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 500   1      }
+ 501          
+ 502          void test_rest_process()
+ 503          {
+ 504   1        valve_disable();
+ 505   1        alert_beep_disable();
+ 506   1        count_down_cancel_test();
+ 507   1        test_reset_all_para();
+ 508   1      }
+ 509          
+ 510          void cartoon_display_change(u8 value)
+ 511          {
+ 512   1        TX_write2buff(COM[COM2_ID], 0x5A);
+ 513   1        TX_write2buff(COM[COM2_ID], 0xA5);
+ 514   1        TX_write2buff(COM[COM2_ID], 0x05);
+ 515   1        TX_write2buff(COM[COM2_ID], 0x82);
+ 516   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 517   1        TX_write2buff(COM[COM2_ID], 0x30);
+ 518   1        TX_write2buff(COM[COM2_ID], 0x00);
+ 519   1        TX_write2buff(COM[COM2_ID], value);
+ 520   1      
+ 521   1      }
+ 522          
+ 523          
+ 524          void system_enter_idle()
+ 525          {
+ 526   1        feed_status = idle;
+ 527   1        cartoon_display_change(STATUS_IDLE);
+ 528   1      }
+ 529          
+ 530          
+ 531          void system_enter_fan_work()
+ 532          {
+ 533   1        feed_status = fan_work;
+ 534   1        cartoon_display_change(STATUS_FAN_WORK);
+ 535   1      }
+ 536          
+ 537          void system_enter_sunction()
+ 538          {
+ 539   1        feed_status = suction;
+ 540   1        cartoon_display_change(STATUS_SUCTION);
+ 541   1      }
+ 542          
+ 543          void system_enter_discharge()
+ 544          {
+ 545   1        feed_status = discharge;
+ 546   1        cartoon_display_change(STATUS_DISCHARGE);
+ 547   1      }
+ 548          
+ 549          void system_enter_alter_feed_full()
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 10  
+
+ 550          {
+ 551   1        feed_status = full;
+ 552   1        cartoon_display_change(STATUS_FEED_FULL);
+ 553   1      }
+ 554          
+ 555          void system_enter_intercept()
+ 556          {
+ 557   1        feed_status = intercept;
+ 558   1        cartoon_display_change(STATUS_INTERCEPT);
+ 559   1      }
+ 560          
+ 561          void system_enter_spray_wash()
+ 562          {
+ 563   1        cartoon_display_change(STATUS_SPRAY_WASH);
+ 564   1      }
+ 565          
+ 566          
+ 567          // go back home
+ 568          void page_back_home()
+ 569          {
+ 570   1        // first page
+ 571   1        turn_to_page(PAGE_HOME1);
+ 572   1        count_down_cancel(&system_back_home);
+ 573   1        page_init = 0;
+ 574   1      }
+ 575          
+ 576          void password_input_cancle()
+ 577          {
+ 578   1        count_down_cancel(&system_back_home);
+ 579   1        reset_password_input();
+ 580   1        login_off_current_user();
+ 581   1        page_init = 0;
+ 582   1      }
+ 583          
+ 584          void password_modify_cancle()
+ 585          {
+ 586   1        count_down_cancel(&system_back_home);
+ 587   1        reset_password_modify_input();
+ 588   1        reload_system_no_identify();
+ 589   1        page_init = 0;
+ 590   1      }
+ 591          
+ 592          void param_set_cancle()
+ 593          {
+ 594   1        display_all_para(INDEX_FOR_ADMIN_SET);
+ 595   1        count_down_cancel(&system_back_home);
+ 596   1        reload_system_no_identify();
+ 597   1        page_init = 0;
+ 598   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2693    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      2       7
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+C51 COMPILER V9.52.0.0   PROCESS                                                           11/08/2016 20:29:07 PAGE 11  
+
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

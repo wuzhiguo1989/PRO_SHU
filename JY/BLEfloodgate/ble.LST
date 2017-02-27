@@ -1,0 +1,920 @@
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE BLE
+OBJECT MODULE PLACED IN ble.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE ble.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "ble.h"
+   2          #include "string.h"
+   3          #include "usart.h"
+   4          #include "task.h"
+   5          #include "config.h"
+   6          #include "stdio.h"
+   7          #include "share.h"
+   8          #include "sync.h"
+   9          #include "utils.h"
+  10          #define error_code 0x00
+  11          
+  12          #define ble_send_command(x)   PrintString1(x)
+  13          #define ble_recieve_data(x)   GetString1(x)
+  14          #define ble_send_data(x)      PrintString2(x)
+  15          
+  16          static code unsigned char const BLE_IND_LINKED[] = "Connected\r\n";
+  17          static code unsigned char const BLE_IND_ADVERTISING[] = "Advertising\r\n";
+  18          static code unsigned char const BLE_IND_UNLINKED[] = "Disconnected\r\n";
+  19          static code unsigned char const BLE_IND_LINKED_TIME_OUT[] = "Timed Out\r\n";
+  20          static code unsigned char const BLE_IND_INIT[] = "Initialized\r\n";
+  21          static code unsigned char const BLE_IND_PASSWORD[] = "VerificateIdentity\r\n";
+  22          static code unsigned char const BLE_IND_UNLOCKED[] = "Please_openthedoor\r\n";
+  23          static code unsigned char const BLE_IND_SUCCESS_CHANGE_BLE_NAME[] = "OK";
+  24          static code unsigned char const BLE_IND_CONNECT_BREAK[] = "Connection is broken";
+  25          
+  26          static volatile u8 xdata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲
+  27          static volatile u8 xdata RX1_Buffer[COM_RX1_Lenth];    //接收缓冲
+  28          static volatile u8 xdata RX1_Spare[COM_RX1_Lenth];
+  29          static volatile u8 xdata RX1_Spare_Cnt = 0;
+  30          
+  31          u8 received_for_request = 0;
+  32          u8 received_for_ble_response = 0;
+  33          
+  34          void init_A()
+  35          {
+  36   1          u8 counter_for_A[4] = {0x00, 0x01, 0x02, 0x03};
+  37   1          Store_A(counter_for_A, 0, 3);
+  38   1      }
+  39          
+  40          void init_uart()
+  41          {
+  42   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+  43   1          COM1.RX_Cnt = 0;
+  44   1          COM1.B_RX_OK = FALSE;
+  45   1          received_for_request = 0;
+  46   1          received_for_ble_response = 0;
+  47   1      }
+  48          
+  49          
+  50          void Delay2000ms()      //@24.000MHz
+  51          {
+  52   1          unsigned char i, j, k;
+  53   1      
+  54   1          _nop_();
+  55   1          _nop_();
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 2   
+
+  56   1          i = 183;
+  57   1          j = 100;
+  58   1          k = 225;
+  59   1          do
+  60   1          {
+  61   2              do
+  62   2              {
+  63   3                  while (--k);
+  64   3              } while (--j);
+  65   2          } while (--i);
+  66   1      }
+  67          
+  68          void Delay50ms()        //@24.000MHz
+  69          {
+  70   1          unsigned char i, j, k;
+  71   1      
+  72   1          _nop_();
+  73   1          _nop_();
+  74   1          i = 5;
+  75   1          j = 144;
+  76   1          k = 71;
+  77   1          do
+  78   1          {
+  79   2              do
+  80   2              {
+  81   3                  while (--k);
+  82   3              } while (--j);
+  83   2          } while (--i);
+  84   1      }
+  85          
+  86          void TX1_write2buff(const u8 dat) 
+  87          {
+  88   1          TX1_Buffer[COM1.TX_write] = dat;        // 装发送缓冲
+  89   1          if(++COM1.TX_write >= COM_TX1_Lenth)    
+  90   1              COM1.TX_write = 0;
+  91   1      
+  92   1          if(COM1.B_TX_busy == 0)                 // 空闲
+  93   1          {  
+  94   2              COM1.B_TX_busy = 1;                 // 标志忙
+  95   2              TI = 1;                             // 触发发送中断
+  96   2          }
+  97   1      }
+  98          
+  99          // BLE DUTY: 
+ 100          // 1. read buffer 
+ 101          // 2. in case recieve new while reading, all new SBUF direct to RX1_Spare
+ 102          // 3. when finish reading, RX1_Spare copy to RX1_Buffer, while new SBUF to index > RX1_Spare_Cnt
+ 103          // 4. new handle buffer will start after prev copy is over
+ 104          static void GetString1(u8 *received) {
+ 105   1          if (COM1.RX_Cnt) 
+ 106   1              memcpy(received, RX1_Buffer, COM1.RX_Cnt);
+ 107   1              received[COM1.RX_Cnt] = '\0';
+ 108   1      
+ 109   1          // COM1.RX_Cnt = RX1_Spare_Cnt;
+ 110   1          COM1.RX_Cnt = 0;
+ 111   1          COM1.B_RX_OK = FALSE;
+ 112   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+ 113   1          // if (RX1_Spare_Cnt) 
+ 114   1          //     memcpy(RX1_Buffer, RX1_Spare, RX1_Spare_Cnt);
+ 115   1          // RX1_Spare_Cnt = 0;
+ 116   1      }
+ 117          
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 3   
+
+ 118          static void PrintString1(u8 *puts)
+ 119          {
+ 120   1          for (; *puts != 0;  puts++)  TX1_write2buff(*puts);     //遇到停止符0结束
+ 121   1      }
+ 122          
+ 123          static void PrintString2(u8 *puts)
+ 124          {
+ 125   1          u8 i;
+ 126   1          for(i = 0 ; i < 20; i++)
+ 127   1               TX1_write2buff(puts[i]);
+ 128   1           Delay50ms();
+ 129   1      }
+ 130          void BLE_Init() {
+ 131   1      
+ 132   1          memset(TX1_Buffer, 0, COM_TX1_Lenth);
+ 133   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+ 134   1          memset(RX1_Spare, 0, COM_RX1_Lenth);
+ 135   1          USART_Init(&COM1);
+ 136   1      
+ 137   1          S1_8bit();
+ 138   1          S1_BRT_UseTimer2();     // S1 BRT Use Timer2;
+ 139   1      
+ 140   1          S1_Int_Enable();        // 允许中断
+ 141   1      
+ 142   1          S1_RX_Enable();         // Rx 接收允许
+ 143   1          S1_USE_P30P31();
+ 144   1          quasi_bidirectional(BLE_TX_Mx, BLE_TX_BIT);
+ 145   1          quasi_bidirectional(BLE_RX_Mx, BLE_RX_BIT);
+ 146   1      
+ 147   1          S1_TXD_RXD_OPEN();
+ 148   1      
+ 149   1          USART_Share_Timer2();
+ 150   1      }
+ 151          
+ 152          void BLE_Enter_Adversting()
+ 153          {
+ 154   1          BT_RTS = 0;
+ 155   1          sync_with_alert();
+ 156   1          ble_send_command("AT+RSET\r\n");
+ 157   1          Delay50ms();
+ 158   1          BT_RTS = 1;
+ 159   1          init_uart();
+ 160   1      }
+ 161          
+ 162          void BLE_ChangeBLEName(u8 *blename)
+ 163          {
+ 164   1          u8 i;
+ 165   1          u8 cmd[22] = {'A','T','+','S','N','A','M','+', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0
+             -x00, 0x00, 0x00,'\r','\n'};
+ 166   1          for(i = 8; i <= 19; i++)
+ 167   1              cmd[i] = blename[i-8];
+ 168   1          BT_RTS = 0;
+ 169   1          sync_with_alert();
+ 170   1          for(i = 0; i < 22; i++)
+ 171   1          {
+ 172   2              TX1_write2buff(cmd[i]);
+ 173   2          } 
+ 174   1          Delay50ms();
+ 175   1          BT_RTS = 1;
+ 176   1      }
+ 177          
+ 178          bool Check_Requset_for_Read_counter_for_operation(u8 *received)
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 4   
+
+ 179          {
+ 180   1          u8 i, timestamp[6];
+ 181   1          for(i = 0; i < 6; i++)
+ 182   1              timestamp[i] = ~received[i+1];
+ 183   1          if((received[7] == ~ received[0]) && ChecksimpleCRC(received, 0, 7, received[8]) && 
+ 184   1              CheckExclusive_Or(timestamp, 0, 5, received, 0, 5, received, 9, 14) && ChecksimpleCRC(received, 7,
+             - 14, received[15]) && CheckAnd(received, 0, 7, ~received[16], ~received[17]) && CheckAnd(received, 8, 15, ~received[18],
+             - ~received[19]))
+ 185   1          {
+ 186   2              // Store_Timestamp(timestamp, 0, 5);
+ 187   2              return 0;
+ 188   2          }
+ 189   1          else
+ 190   1              return 1;
+ 191   1      }
+ 192          
+ 193          void Send_Response_for_Read_counter_for_operation(u8 *received)
+ 194          {
+ 195   1          u8 send_data[20], i, timestamp[6];
+ 196   1          u32 couter_for_operation;
+ 197   1          memset(send_data, 0 , 20);
+ 198   1          send_data[0] = received[0] + 1;
+ 199   1          if(!Check_Requset_for_Read_counter_for_operation(received))
+ 200   1          { 
+ 201   2              send_data[1] = 0x00;
+ 202   2              // todo
+ 203   2              if(received[0] == 0x00){ 
+ 204   3                  couter_for_operation = Read_Counter_for_Open_key_cabinet();
+ 205   3              }else if(received[0] == 0x02){
+ 206   3                  couter_for_operation = Read_Counter_for_Open_flood_door();
+ 207   3              }else if(received[0] == 0x04){
+ 208   3                  couter_for_operation = Read_Counter_for_Read_A_and_B();
+ 209   3              }else if(received[0] == 0x06){
+ 210   3                  couter_for_operation = Read_Counter_for_Write_A();
+ 211   3              }else if(received[0] == 0x16){
+ 212   3                  couter_for_operation = Read_Counter_for_change_BLEname();
+ 213   3              } 
+ 214   2              send_data[2] = 0x00;
+ 215   2              // 3~5 位取操作数后三位再取反
+ 216   2              // 高位在前
+ 217   2              for(i = 3; i <= 5; i++)
+ 218   2                  send_data[i] = ~(couter_for_operation >> (8 * (5-i)));
+ 219   2              // 6~11字节取Timestamp
+ 220   2              for(i = 0; i < 6; i++)
+ 221   2                  timestamp[i] = ~received[i+1];
+ 222   2              for(i = 6; i < 12; i++)
+ 223   2                  send_data[i] = ~timestamp[i-6];
+ 224   2              // 12~15
+ 225   2              Read_A(send_data, 12, 15);
+ 226   2              Exclusive_Or_Creat(send_data, 12, 15, timestamp, 2, 5, send_data, 12, 15);
+ 227   2              Complement_Creat(send_data, 12, 15, send_data, 12, 15);
+ 228   2              // 16~19
+ 229   2              send_data[16] = CRC_Creat(send_data, 0, 7);
+ 230   2              send_data[17] = CRC_Creat(send_data, 8, 15);
+ 231   2              send_data[18] = (u8) (AND_Creat(send_data, 0, 17) >> 8);
+ 232   2              send_data[19] = (u8) AND_Creat(send_data, 0, 17);
+ 233   2          }
+ 234   1          else
+ 235   1          {
+ 236   2              send_data[1] = 0x01;
+ 237   2              for(i = 2; i < 17; i++)
+ 238   2                  send_data[i] = 0x00;
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 5   
+
+ 239   2              send_data[18] = send_data[19] = error_code;
+ 240   2          }
+ 241   1          ble_send_data(send_data);
+ 242   1      }
+ 243          
+ 244          bool Check_Requset_for_Open_floodgate(u8 *received)
+ 245          {
+ 246   1          u8 i, list_for_Open_flood_door[4], counter_for_B[4], order_over_creat_for_B[4], timestamp[6];
+ 247   1          u32 counter_for_Open_flood_door;
+ 248   1          // 取操作次数
+ 249   1          counter_for_Open_flood_door = Read_Counter_for_Open_flood_door();
+ 250   1          //counter_for_Open_flood_door = 0x00000001;
+ 251   1          list_for_Open_flood_door[0] = (u8) (counter_for_Open_flood_door >> 24);
+ 252   1          list_for_Open_flood_door[1] = (u8) (counter_for_Open_flood_door >> 16);
+ 253   1          list_for_Open_flood_door[2] = (u8) (counter_for_Open_flood_door >> 8);
+ 254   1          list_for_Open_flood_door[3] = (u8) counter_for_Open_flood_door;
+ 255   1          // 取B
+ 256   1          Read_B(counter_for_B, 0, 3);
+ 257   1          Order_Over_Creat(counter_for_B, 0, 3, order_over_creat_for_B, 0, 3);
+ 258   1          for(i = 0; i < 6; i++)
+ 259   1              timestamp[i] = ~ received[i+10];
+ 260   1          if(CheckComplement(list_for_Open_flood_door, 1, 3, received, 1, 3) && CheckExclusive_Or(order_over_cre
+             -at_for_B, 0, 3, received, 0, 3,  received, 4, 7) && CheckAnd(counter_for_B, 0, 3, ~received[8], ~received[9]) && Checksi
+             -mpleCRC(received, 0, 7, received[16]) && ChecksimpleCRC(received, 8, 15, received[17]) && CheckAnd(received, 0, 17, rece
+             -ived[18], received[19]))
+ 261   1          {
+ 262   2              Store_Counter_for_Open_flood_door(counter_for_Open_flood_door+1);
+ 263   2              return 0;
+ 264   2          }
+ 265   1          else
+ 266   1          {
+ 267   2              return 1;
+ 268   2          }
+ 269   1      }
+ 270          void Send_Response_for_Open_floodgate(u8 *received)
+ 271          {
+ 272   1          u8 send_data[20] , i , timestamp[6], timestamp_complement[6];
+ 273   1          memset(send_data, 0 , 20);
+ 274   1          send_data[0] = 0x09;
+ 275   1          if(!Check_Requset_for_Open_floodgate(received))
+ 276   1          { 
+ 277   2              send_data[1] = 0x00;
+ 278   2              // todo
+ 279   2              // 2~7字节取Timestamp
+ 280   2              for(i = 0; i < 6; i++)
+ 281   2                  timestamp[i] = ~ received[i+10];
+ 282   2              for(i = 2; i <= 7; i++ )
+ 283   2                  send_data[i] = timestamp[i-2];
+ 284   2              send_data[8] = CRC_Creat(send_data, 0, 7);
+ 285   2              send_data[9] = ~ send_data[0];
+ 286   2              send_data[10] = (u8) (~ (AND_Creat(send_data, 0, 7) >> 8));
+ 287   2              send_data[11] = (u8) (~ AND_Creat(send_data, 0, 7));
+ 288   2              
+ 289   2              send_data[12] = (u8) (~ (AND_Creat(send_data, 8, 11) >> 8));
+ 290   2              send_data[13] = (u8) (~ AND_Creat(send_data, 8, 11));
+ 291   2              // 14 ~ 19
+ 292   2              Complement_Creat(send_data, 2, 7, timestamp_complement, 0, 5);
+ 293   2              Exclusive_Or_Creat(timestamp_complement, 0, 5, send_data, 8, 13, send_data, 14, 19);
+ 294   2              ble_send_data(send_data);
+ 295   2              // 5S内开锁信号
+ 296   2              // 开锁(持续一秒的高电平)
+ 297   2              candidate_time_out_signal_recieving = NO;
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 6   
+
+ 298   2              reset_all_counters();
+ 299   2              candidate_driver_signal_recieving = YES;
+ 300   2              DRIVER = 1;
+ 301   2          }
+ 302   1          else
+ 303   1          {
+ 304   2              send_data[1] = 0x01;
+ 305   2              for(i = 2; i < 17; i++)
+ 306   2                  send_data[i] = 0x00;
+ 307   2              send_data[18] = send_data[19] = error_code;
+ 308   2              ble_send_data(send_data);
+ 309   2          }
+ 310   1      
+ 311   1      }
+ 312          
+ 313          bool Check_Requset_for_Open_key_cabinet(u8 *received)
+ 314          {
+ 315   1          u8 timestamp[6] , i, key_cabinet_number, list_for_Open_key_cabinet[4], counter_for_B[4], order_over_cr
+             -eat_for_B[4];
+ 316   1          u32 counter_for_Open_key_cabinet;
+ 317   1          // 取操作次数
+ 318   1           counter_for_Open_key_cabinet = Read_Counter_for_Open_key_cabinet();
+ 319   1           list_for_Open_key_cabinet[0] = counter_for_Open_key_cabinet >> 24;
+ 320   1           list_for_Open_key_cabinet[1] = counter_for_Open_key_cabinet >> 16;
+ 321   1           list_for_Open_key_cabinet[2] = counter_for_Open_key_cabinet >> 8;
+ 322   1           list_for_Open_key_cabinet[3] = counter_for_Open_key_cabinet ;
+ 323   1          // 取B
+ 324   1          Read_B(counter_for_B, 0, 3);
+ 325   1          Order_Over_Creat(counter_for_B, 0, 3, order_over_creat_for_B, 0, 3);
+ 326   1          for(i = 0; i < 6; i++)
+ 327   1              timestamp[i] = ~ received[i+10];
+ 328   1          // 第8字节柜门编号
+ 329   1          key_cabinet_number = ~ received[8];
+ 330   1          if(CheckComplement(list_for_Open_key_cabinet, 1, 3, received, 1, 3) && CheckExclusive_Or(order_over_cr
+             -eat_for_B, 0, 3, received, 0, 3,  received, 4, 7) && (received[9] == key_cabinet_number ^ received[3]) && ChecksimpleCRC
+             -(received, 0, 7, received[16]) && ChecksimpleCRC(received, 8, 15, received[17]) && CheckAnd(received, 0, 17, received[18
+             -], received[19]))
+ 331   1          {
+ 332   2              // Store_Timestamp(timestamp, 0, 5);
+ 333   2              Store_Counter_for_Open_key_cabinet(counter_for_Open_key_cabinet);
+ 334   2              return 0;
+ 335   2          }
+ 336   1          else
+ 337   1              return 1;
+ 338   1      
+ 339   1      }
+ 340          void Send_Response_for_Open_key_cabinet(u8 *received)
+ 341          {
+ 342   1          u8 send_data[20] , i , timestamp[6], timestamp_complement[6];
+ 343   1          memset(send_data, 0 , 20);
+ 344   1          send_data[0] = 0x0C;
+ 345   1          if(!Check_Requset_for_Open_floodgate(received))
+ 346   1          { 
+ 347   2              send_data[1] = 0x00;
+ 348   2              // todo
+ 349   2              // 2~7字节取Timestamp
+ 350   2              for(i = 0; i < 6; i++)
+ 351   2              timestamp[i] = ~ received[i+10];
+ 352   2              for(i = 2; i <= 7; i++ )
+ 353   2                  send_data[i] = timestamp[i-2];
+ 354   2              send_data[8] = CRC_Creat(send_data, 0, 7);
+ 355   2              send_data[9] = (~ send_data[1]) ^ (~ received[8]);
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 7   
+
+ 356   2              send_data[10] = (u8) (~ (AND_Creat(send_data, 0, 7) >> 8));
+ 357   2              send_data[11] = (u8) (~ AND_Creat(send_data, 0, 7));
+ 358   2              
+ 359   2              send_data[12] = (u8) (~ (AND_Creat(send_data, 8, 11) >> 8));
+ 360   2              send_data[13] = (u8) (~ AND_Creat(send_data, 8, 11));
+ 361   2              // 14 ~ 19
+ 362   2              Complement_Creat(send_data, 2, 7, timestamp_complement, 0, 5);
+ 363   2              Exclusive_Or_Creat(timestamp_complement, 0, 5, send_data, 8, 13, send_data, 14, 19);
+ 364   2              ble_send_data(send_data);
+ 365   2              //  这里要开柜门
+ 366   2          }
+ 367   1          else
+ 368   1          {
+ 369   2              send_data[1] = 0x01;
+ 370   2              for(i = 2; i < 17; i++)
+ 371   2                  send_data[i] = 0x00;
+ 372   2              send_data[18] = send_data[19] = error_code;
+ 373   2              ble_send_data(send_data);
+ 374   2          }
+ 375   1      
+ 376   1          
+ 377   1      }
+ 378          
+ 379          
+ 380          bool Check_Requset_for_Read_A_and_B(u8 *received)
+ 381          {
+ 382   1          u8 i, list_for_Read_A_and_B[4], timestamp[6];
+ 383   1          u32 counter_for_Read_A_and_B;
+ 384   1          // 取操作次数
+ 385   1          counter_for_Read_A_and_B = Read_Counter_for_Read_A_and_B();
+ 386   1          list_for_Read_A_and_B[0] = counter_for_Read_A_and_B >> 24;
+ 387   1          list_for_Read_A_and_B[1] = counter_for_Read_A_and_B >> 16;
+ 388   1          list_for_Read_A_and_B[2] = counter_for_Read_A_and_B >> 8;
+ 389   1          list_for_Read_A_and_B[3] = counter_for_Read_A_and_B;
+ 390   1        for(i = 0; i < 6; i++)
+ 391   1              timestamp[i] = ~ received[i+4];
+ 392   1          if(CheckComplement(list_for_Read_A_and_B, 1, 3, received, 1, 3) && CheckExclusive_Or(timestamp, 0, 5, 
+             -received, 0, 5, received, 10, 15) && ChecksimpleCRC(received, 0, 7, received[16]) && ChecksimpleCRC(received, 8, 15, rec
+             -eived[17]) && CheckAnd(received, 0, 17, received[18], received[19]))
+ 393   1          {
+ 394   2              // Store_Timestamp(timestamp, 0, 5);
+ 395   2          Store_Counter_for_Read_A_and_B(counter_for_Read_A_and_B + 1);
+ 396   2              return 0;
+ 397   2          }
+ 398   1          else
+ 399   1              return 1;
+ 400   1      }
+ 401          void Send_Response_for_Read_A_and_B(u8 *received)
+ 402          {
+ 403   1          u8 send_data[20], i, timestamp[6];
+ 404   1          memset(send_data, 0 , 20);
+ 405   1          send_data[0] = 0x0F;
+ 406   1          if(!Check_Requset_for_Read_A_and_B(received))
+ 407   1          { 
+ 408   2              send_data[1] = 0x00;
+ 409   2              // todo
+ 410   2              // 2~7字节取Timestamp
+ 411   2              for(i = 0; i < 6; i++)
+ 412   2                  timestamp[i] = ~ received[i+4];
+ 413   2              for(i = 2; i <= 7; i++ )
+ 414   2                  send_data[i] = timestamp[i-2];
+ 415   2              Read_A(send_data, 8, 11);
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 8   
+
+ 416   2              Read_B(send_data, 12, 15);
+ 417   2              // 8 ~ 11
+ 418   2              Exclusive_Or_Creat(send_data, 8, 11, send_data, 4, 7, send_data, 8, 11);
+ 419   2              Complement_Creat(send_data, 8, 11, send_data, 8, 11);
+ 420   2              // 12 ~ 15
+ 421   2              Exclusive_Or_Creat(send_data, 12, 15, send_data, 0, 3, send_data, 12, 15);
+ 422   2              Complement_Creat(send_data, 12, 15, send_data, 12, 15);
+ 423   2              send_data[16] = CRC_Creat(send_data, 0, 7);
+ 424   2              send_data[17] = CRC_Creat(send_data, 8, 15);
+ 425   2              send_data[18] = (u8) (~ (AND_Creat(send_data, 0, 17) >> 8)) ;
+ 426   2              send_data[19] = (u8) (~ AND_Creat(send_data, 0, 17));
+ 427   2          }
+ 428   1          else
+ 429   1          {
+ 430   2              send_data[1] = 0x01;
+ 431   2              for(i = 2; i < 17; i++)
+ 432   2                  send_data[i] = 0x00;
+ 433   2              send_data[18] = send_data[19] = error_code;
+ 434   2          }
+ 435   1           ble_send_data(send_data);
+ 436   1          
+ 437   1      }
+ 438          bool Check_Requset_for_Write_A(u8 *received)
+ 439          {
+ 440   1          u8 i, list_for_Write_A[4], counter_for_A[4], timestamp[6];
+ 441   1          u32 counter_for_Write_A;
+ 442   1          // 取操作次数
+ 443   1          counter_for_Write_A = Read_Counter_for_Write_A();
+ 444   1          list_for_Write_A[0] = counter_for_Write_A >> 24;
+ 445   1          list_for_Write_A[1] = counter_for_Write_A >> 16;
+ 446   1          list_for_Write_A[2] = counter_for_Write_A >> 8;
+ 447   1          list_for_Write_A[3] = counter_for_Write_A ;
+ 448   1          for(i = 0; i < 6; i++)
+ 449   1              timestamp[i] = ~ received[i+4];
+ 450   1          Complement_Creat(received, 10, 13, counter_for_A, 0, 3);
+ 451   1          if(CheckComplement(list_for_Write_A, 1, 3, received, 1, 3) && CheckAnd(received, 0, 13, received[14], 
+             -received[15]) && ChecksimpleCRC(received, 0, 7, received[16]) && ChecksimpleCRC(received, 8, 15, received[17]) && CheckA
+             -nd(received, 0, 17, received[18], received[19]))
+ 452   1          {
+ 453   2              Store_A(counter_for_A, 0, 3);
+ 454   2          Store_Counter_for_Operate_A_B_and_Blename((counter_for_Write_A + 1), 1);
+ 455   2              return 0;
+ 456   2          }
+ 457   1          else
+ 458   1              return 1;
+ 459   1      }
+ 460          void Send_Response_for_Write_A(u8 *received)
+ 461          {
+ 462   1          u8 send_data[20], i, counter_for_A[4], timestamp[6];
+ 463   1          memset(send_data, 0 , 20);
+ 464   1          send_data[0] = 0x11;
+ 465   1          if(!Check_Requset_for_Write_A(received))
+ 466   1          { 
+ 467   2              send_data[1] = 0x00;
+ 468   2              // todo
+ 469   2              for(i = 0; i < 6; i++)
+ 470   2                 timestamp[i] = ~ received[i+4];
+ 471   2              // 2~7字节取Timestamp
+ 472   2              for(i = 2; i <= 7; i++ )
+ 473   2                  send_data[i] = timestamp[i-2];
+ 474   2              // 
+ 475   2              Complement_Creat(received, 10, 13, counter_for_A, 0, 3);
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 9   
+
+ 476   2              // 8 ~ 11
+ 477   2              Exclusive_Or_Creat(counter_for_A, 0, 3, send_data, 4, 7, send_data, 8, 11);
+ 478   2              Complement_Creat(send_data, 8, 11, send_data, 8, 11);
+ 479   2              // 12 ~ 15
+ 480   2              Exclusive_Or_Creat(counter_for_A, 0, 3, send_data, 0, 3, send_data, 12, 15);
+ 481   2              Complement_Creat(send_data, 12, 15, send_data, 12, 15);
+ 482   2              send_data[16] = CRC_Creat(send_data, 0, 7);
+ 483   2              send_data[17] = CRC_Creat(send_data, 8, 15);
+ 484   2              send_data[18] = (u8) ((~ AND_Creat(send_data, 0, 17)) >> 8);
+ 485   2              send_data[19] = (u8) (~ AND_Creat(send_data, 0, 17));
+ 486   2          }
+ 487   1          else
+ 488   1          {
+ 489   2              send_data[1] = 0x01;
+ 490   2              for(i = 2; i < 17; i++)
+ 491   2                  send_data[i] = 0x00;
+ 492   2              send_data[18] = send_data[19] = error_code;
+ 493   2          }
+ 494   1          ble_send_data(send_data);
+ 495   1          
+ 496   1      }
+ 497          bool Check_Requset_for_ChangeBLEname(u8 *received)
+ 498          {
+ 499   1          u8 list_for_ChangeBLEname[4];
+ 500   1          u32 counter_for_change_BLEname;
+ 501   1          //counter_for_change_BLEname = 0xFFFFFFFF;
+ 502   1          counter_for_change_BLEname = Read_Counter_for_change_BLEname();
+ 503   1          list_for_ChangeBLEname[0] = counter_for_change_BLEname >> 24;
+ 504   1          list_for_ChangeBLEname[1] = counter_for_change_BLEname >> 16;
+ 505   1          list_for_ChangeBLEname[2] = counter_for_change_BLEname >> 8;
+ 506   1          list_for_ChangeBLEname[3] = counter_for_change_BLEname;
+ 507   1          if(CheckComplement(list_for_ChangeBLEname, 1, 3, received, 1, 3) && ChecksimpleCRC(received, 0, 7, rec
+             -eived[16]) && ChecksimpleCRC(received, 8, 15, received[17]) && CheckAnd(received, 0, 17, received[18], received[19]))
+ 508   1          {
+ 509   2              Store_Counter_for_Operate_A_B_and_Blename((counter_for_change_BLEname + 1), 2);
+ 510   2              return 0;
+ 511   2          }
+ 512   1          else
+ 513   1              return 1;
+ 514   1          
+ 515   1      }
+ 516          void Send_Response_for_ChangeBLEname(u8 *received)
+ 517          {
+ 518   1          u8 send_data[20], i, blename[12];
+ 519   1          memset(send_data, 0 , 20);
+ 520   1          send_data[0] = 0x13;
+ 521   1          if(!Check_Requset_for_ChangeBLEname(received))
+ 522   1          { 
+ 523   2              send_data[1] = 0x00;
+ 524   2              // 2~7字节：电话号码
+ 525   2              send_data[2] = 0x00;
+ 526   2              send_data[3] = 0x40;
+ 527   2              send_data[4] = 0x00;
+ 528   2              send_data[5] = 0x03;
+ 529   2              send_data[6] = 0x81;
+ 530   2              send_data[7] = 0x36;
+ 531   2              Read_A(send_data, 8, 11);
+ 532   2              // 8 ~ 11
+ 533   2              Exclusive_Or_Creat(send_data, 8, 11, send_data, 4, 7, send_data, 8, 11);
+ 534   2              Complement_Creat(send_data, 8, 11, send_data, 8, 11);
+ 535   2              // 12 ~ 15
+ 536   2              Read_A(send_data, 12, 15);
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 10  
+
+ 537   2              Exclusive_Or_Creat(send_data, 12, 15, send_data, 0, 3, send_data, 12, 15);
+ 538   2              Complement_Creat(send_data, 12, 15, send_data, 12, 15);
+ 539   2              send_data[16] = CRC_Creat(send_data, 0, 7);
+ 540   2              send_data[17] = CRC_Creat(send_data, 8, 15);
+ 541   2              send_data[18] = (u8) ((~ AND_Creat(send_data, 0, 17)) >> 8);
+ 542   2              send_data[19] = (u8) (~ AND_Creat(send_data, 0, 17));
+ 543   2              ble_send_data(send_data);
+ 544   2      
+ 545   2              Delay50ms();
+ 546   2              for(i = 4; i <= 15; i++)
+ 547   2                  blename[i - 4] = received[i];
+ 548   2              BLE_ChangeBLEName(blename);
+ 549   2              //BLE_ChangeBLEName("123456789002");
+ 550   2              Delay50ms();
+ 551   2              // Delay2000ms();   
+ 552   2              BLE_Enter_Adversting();
+ 553   2          }
+ 554   1          else
+ 555   1          {
+ 556   2              send_data[1] = 0x01;
+ 557   2              for(i = 2; i < 17; i++)
+ 558   2                  send_data[i] = 0x00;
+ 559   2              send_data[18] = send_data[19] = error_code;
+ 560   2              ble_send_data(send_data);
+ 561   2          }
+ 562   1          
+ 563   1      }
+ 564          
+ 565          bool Read_status_key_cabinet(u8 key_cabinet_number)
+ 566          {
+ 567   1        return 1;
+ 568   1      }
+*** WARNING C280 IN LINE 565 OF ble.c: 'key_cabinet_number': unreferenced local variable
+ 569          
+ 570          bool Check_Requset_for_Read_status_for_key_cabinet(u8 *received)
+ 571          {
+ 572   1          u8 i, timestamp[6];
+ 573   1          for(i = 0; i < 6; i++)
+ 574   1              timestamp[i] = ~ received[i+1];
+ 575   1          if((received[7] == ~ received[0]) && ChecksimpleCRC(received, 0, 7, received[8]) && 
+ 576   1              CheckExclusive_Or(timestamp, 0, 5, received, 0, 5, received, 9, 14) && ChecksimpleCRC(received, 7,
+             - 14, received[15]) && CheckAnd(received, 0, 7, ~received[16], ~received[17]) && CheckAnd(received, 8, 15, ~received[18],
+             - ~received[19]))
+ 577   1          {
+ 578   2              return 0;
+ 579   2          }
+ 580   1          else
+ 581   1              return 1; 
+ 582   1      }
+ 583          
+ 584          void Send_Response_for_Read_status_for_key_cabinet(u8 *received)
+ 585          {
+ 586   1          u8 send_data[20], i, code_key_cabinet;
+ 587   1          memset(send_data, 0 , 20);
+ 588   1          send_data[0] = 0x15;
+ 589   1          if(!Check_Requset_for_Read_status_for_key_cabinet(received))
+ 590   1          { 
+ 591   2              send_data[1] = 0x00;
+ 592   2              // todo
+ 593   2              // send_data[2] = ~ ;
+ 594   2              send_data[2] = 0x00;
+ 595   2              for(code_key_cabinet = 3; code_key_cabinet < 15; code_key_cabinet++)
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 11  
+
+ 596   2                  for(i = 0; i < 8; i++)
+ 597   2                      send_data[code_key_cabinet] =send_data[code_key_cabinet] << 1 | Read_status_key_cabinet(co
+             -de_key_cabinet);
+ 598   2              send_data[16] = CRC_Creat(send_data, 0, 7);
+ 599   2              send_data[17] = CRC_Creat(send_data, 8, 15);
+ 600   2              send_data[18] = (u8) (AND_Creat(send_data, 0, 17) >> 8);
+ 601   2              send_data[19] = (u8) AND_Creat(send_data, 0, 17);
+ 602   2          }
+ 603   1          else
+ 604   1          {
+ 605   2              send_data[1] = 0x01;
+ 606   2              for(i = 2; i < 17; i++)
+ 607   2                  send_data[i] = 0x00;
+ 608   2              send_data[18] = send_data[19] = error_code;
+ 609   2          }
+ 610   1          ble_send_data(send_data); 
+ 611   1      }
+ 612          
+ 613          void ble_process_recieved() {
+ 614   1          unsigned char received[32];
+ 615   1          ble_recieve_data(received);
+ 616   1          // ble_send_command(received);
+ 617   1          if (strcmp(received, BLE_IND_LINKED) == 0) {
+ 618   2              // 5s没发数据、断开
+ 619   2              reset_all_counters();
+ 620   2              candidate_time_out_signal_recieving = YES;
+ 621   2              reset_counter_for_ble();
+ 622   2              // candidate_time_out_signal_recieving = NO;
+ 623   2          } else if (strcmp(received, BLE_IND_ADVERTISING) == 0) {
+ 624   2              candidate_time_out_signal_recieving = NO;
+ 625   2              _nop_();
+ 626   2          } else if (strcmp(received, BLE_IND_LINKED_TIME_OUT) == 0) {
+ 627   2              candidate_time_out_signal_recieving = NO;
+ 628   2              BLE_Enter_Adversting();
+ 629   2          } else if (strcmp(received, BLE_IND_UNLINKED) == 0) {
+ 630   2              candidate_time_out_signal_recieving = NO;
+ 631   2              _nop_();
+ 632   2          } else if (strcmp(received, BLE_IND_INIT) == 0) {
+ 633   2              candidate_time_out_signal_recieving = NO;
+ 634   2          _nop_();
+ 635   2          } else if (strcmp(received, BLE_IND_PASSWORD) == 0) {
+ 636   2              // 5s内验证通过、不再断开
+ 637   2              candidate_time_out_signal_recieving = NO;
+ 638   2              reset_all_counters();
+ 639   2          } else if (strcmp(received, BLE_IND_UNLOCKED) == 0) {
+ 640   2              // 5S内开锁信号
+ 641   2              // 开锁(持续一秒的高电平)
+ 642   2              candidate_time_out_signal_recieving = NO;
+ 643   2              reset_all_counters();
+ 644   2              candidate_driver_signal_recieving = YES;
+ 645   2              DRIVER = 1; // 开锁
+ 646   2          } else if(strcmp(received, BLE_IND_SUCCESS_CHANGE_BLE_NAME) == 0){
+ 647   2              reset_all_counters();
+ 648   2              candidate_time_out_signal_recieving = NO;
+ 649   2              BLE_Enter_Adversting(); 
+ 650   2          } 
+ 651   1          // else {
+ 652   1          //     // 错误数据直接断开进入广播模式
+ 653   1          //     reset_all_counters();
+ 654   1          //     candidate_time_out_signal_recieving = NO;
+ 655   1          //     BLE_Enter_Adversting();
+ 656   1          // }
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 12  
+
+ 657   1      }
+ 658          
+ 659          void request_process_recieved()
+ 660          {
+ 661   1          unsigned char received[20];
+ 662   1          ble_recieve_data(received);
+ 663   1          if(received[0] == 0x00 || received[0] == 0x02 || received[0] == 0x04 || received[0] == 0x06 || receive
+             -d[0] == 0x16){
+ 664   2              candidate_time_out_signal_recieving = NO;
+ 665   2              reset_all_counters();
+ 666   2              Send_Response_for_Read_counter_for_operation(received);
+ 667   2          }else if(received[0] == 0x08){
+ 668   2              candidate_time_out_signal_recieving = NO;
+ 669   2              reset_all_counters();
+ 670   2              Send_Response_for_Open_floodgate(received);
+ 671   2          }else if(received[0] == 0x0B){
+ 672   2              candidate_time_out_signal_recieving = NO;
+ 673   2              reset_all_counters();
+ 674   2              Send_Response_for_Open_key_cabinet(received);
+ 675   2          }else if(received[0] == 0x0E){
+ 676   2              candidate_time_out_signal_recieving = NO;
+ 677   2              reset_all_counters();
+ 678   2              Send_Response_for_Read_A_and_B(received);
+ 679   2          }else if(received[0] == 0x10){
+ 680   2              candidate_time_out_signal_recieving = NO;
+ 681   2              reset_all_counters();
+ 682   2              Send_Response_for_Write_A(received);
+ 683   2          }else if(received[0] == 0x12){
+ 684   2              candidate_time_out_signal_recieving = NO;
+ 685   2              reset_all_counters();   
+ 686   2              Send_Response_for_ChangeBLEname(received);
+ 687   2          }else if(received[0] == 0x14){
+ 688   2              candidate_time_out_signal_recieving = NO;
+ 689   2              reset_all_counters();
+ 690   2              Send_Response_for_Read_status_for_key_cabinet(received);
+ 691   2          }
+ 692   1          else{
+ 693   2              reset_all_counters();
+ 694   2              candidate_time_out_signal_recieving = NO;
+ 695   2              BLE_Enter_Adversting();
+ 696   2          }
+ 697   1      
+ 698   1      }
+ 699          // Handle usart trigger: receiving "\r\n"
+ 700          void UART1_int (void) interrupt UART1_VECTOR
+ 701          {
+ 702   1          if(RI)
+ 703   1          {
+ 704   2              if(COM1.B_RX_OK == 0)
+ 705   2              {
+ 706   3                  if(!received_for_ble_response && !received_for_request)
+ 707   3                  {
+ 708   4                      if((SBUF >= 65 && SBUF <= 90) || (SBUF >= 97 && SBUF <= 122))
+ 709   4                          received_for_ble_response = 1;
+ 710   4                      else
+ 711   4                          received_for_request = 1;
+ 712   4                  }
+ 713   3                  if(received_for_ble_response)
+ 714   3                  {
+ 715   4                      RX1_Buffer[COM1.RX_Cnt++] = SBUF;
+ 716   4                      if (SBUF == '\n') {
+ 717   5                          COM1.B_RX_OK = 1;
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 13  
+
+ 718   5                          received_for_ble_response = 0;
+ 719   5                          INT_PROC |= BLE_DUTY;
+ 720   5                      }
+ 721   4                      else if(RX1_Buffer[1] == 'K' && RX1_Buffer[0] == 'O')
+ 722   4                      {
+ 723   5                          COM1.RX_Cnt = 0;
+ 724   5                          received_for_ble_response = 0;
+ 725   5                          // received_for_ble_response = 0;
+ 726   5                          // INT_PROC |= BLE_DUTY;
+ 727   5                      }
+ 728   4                      // else if(strcmp(RX1_Buffer, BLE_IND_CONNECT_BREAK) == 0)
+ 729   4                      // {
+ 730   4                      //     COM1.B_RX_OK = 1;
+ 731   4                      //     received_for_ble_response = 0;
+ 732   4                      //     INT_PROC |= BLE_DUTY;
+ 733   4                      // }
+ 734   4                      if (COM1.RX_Cnt >= COM_RX1_Lenth)
+ 735   4                      {    
+ 736   5                          COM1.RX_Cnt = 0;
+ 737   5                          received_for_ble_response = 0;
+ 738   5                      }
+ 739   4                  }
+ 740   3                  if(received_for_request)
+ 741   3                  {
+ 742   4                      RX1_Buffer[COM1.RX_Cnt++] = SBUF;
+ 743   4                      if (COM1.RX_Cnt == 20) {
+ 744   5                          COM1.B_RX_OK = 1;
+ 745   5                          INT_PROC |= REQUEST_DUTY;
+ 746   5                          received_for_request = 0;
+ 747   5                      }
+ 748   4                  }
+ 749   3                  COM1.RX_TimeOut = TimeOutSet1;
+ 750   3              } else {
+ 751   3                  // use spare buffer to store 
+ 752   3                  if (RX1_Spare_Cnt < COM_RX1_Lenth)
+ 753   3                      RX1_Spare[RX1_Spare_Cnt++] = SBUF;
+ 754   3              }
+ 755   2              RI = 0;
+ 756   2          }
+ 757   1      
+ 758   1          if(TI)
+ 759   1          {
+ 760   2              TI = 0;
+ 761   2              if(COM1.TX_read != COM1.TX_write)
+ 762   2              {
+ 763   3                  SBUF = TX1_Buffer[COM1.TX_read];
+ 764   3                  if(++COM1.TX_read >= COM_TX1_Lenth)     
+ 765   3                      COM1.TX_read = 0;
+ 766   3              }
+ 767   2              else    
+ 768   2                  COM1.B_TX_busy = 0;
+ 769   2          }
+ 770   1      }
+ 771          
+ 772          
+ 773          // void UART1_int (void) interrupt UART1_VECTOR
+ 774          // {
+ 775          //     if(RI)
+ 776          //     {
+ 777          //         if(COM1.B_RX_OK == 0)
+ 778          //         {
+ 779          
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 14  
+
+ 780          //             if (COM1.RX_Cnt >= COM_RX1_Lenth)    
+ 781          //                  COM1.RX_Cnt = 0;
+ 782          //             if(!received_for_ble_response && !received_for_request)
+ 783          //             {
+ 784          //                 RX1_Buffer[COM1.RX_Cnt] = SBUF;
+ 785          //                 if(SBUF >= 65 && SBUF <= 122)
+ 786          //                     received_for_ble_response = 1;
+ 787          //                 else if(SBUF == '\n'){
+ 788          //                     INT_PROC |= BLE_DUTY;
+ 789          //                     received_for_ble_response = 0;
+ 790          //                 }
+ 791          //                 else
+ 792          //                     received_for_request = 1;
+ 793                           
+ 794          //             }
+ 795          //             if(received_for_ble_response)
+ 796          //             {
+ 797          //                 RX1_Buffer[COM1.RX_Cnt] = SBUF;
+ 798          //                 if(SBUF == 'K' && COM1.RX_Cnt == 1 && RX1_Buffer[0] == 'O')
+ 799          //                 {
+ 800          //                     COM1.B_RX_OK = 1;
+ 801          //                     received_for_ble_response = 0;
+ 802          //                     INT_PROC |= BLE_DUTY;
+ 803          //                 }
+ 804          //                 else if (SBUF == '\n') {
+ 805          //                     COM1.B_RX_OK = 1;
+ 806          //                     received_for_ble_response = 0;
+ 807          //                     INT_PROC |= BLE_DUTY;
+ 808          //                 }
+ 809          //                 COM1.RX_Cnt++;
+ 810          //             }
+ 811          //             if(received_for_request)
+ 812          //             {
+ 813                          
+ 814          //                 RX1_Buffer[COM1.RX_Cnt] = SBUF;
+ 815          //                 if(COM1.RX_Cnt == 19)
+ 816          //                 {
+ 817          //                     COM1.B_RX_OK = 1;
+ 818          //                     INT_PROC |= REQUEST_DUTY;
+ 819          //                     received_for_request = 0;
+ 820          //                 }
+ 821          //                 COM1.RX_Cnt++;
+ 822          //             }    
+ 823          //             COM1.RX_TimeOut = TimeOutSet1;
+ 824          //         } 
+ 825          //         else {
+ 826          //             // use spare buffer to store 
+ 827          //             if (RX1_Spare_Cnt < COM_RX1_Lenth)
+ 828          //                 RX1_Spare[RX1_Spare_Cnt++] = SBUF;
+ 829          //         }
+ 830          //         RI = 0;
+ 831          //     }
+ 832          
+ 833          //     if(TI)
+ 834          //     {
+ 835          //         TI = 0;
+ 836          //         if(COM1.TX_read != COM1.TX_write)
+ 837          //         {
+ 838          //             SBUF = TX1_Buffer[COM1.TX_read];
+ 839          //             if(++COM1.TX_read >= COM_TX1_Lenth)     
+ 840          //                 COM1.TX_read = 0;
+ 841          //         }
+C51 COMPILER V9.52.0.0   BLE                                                               01/03/2016 16:43:04 PAGE 15  
+
+ 842          //         else    
+ 843          //             COM1.B_TX_busy = 0;
+ 844          //     }
+ 845          // }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   7572    ----
+   CONSTANT SIZE    =    169    ----
+   XDATA SIZE       =    131     436
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

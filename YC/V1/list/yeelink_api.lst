@@ -1,0 +1,250 @@
+C51 COMPILER V9.52.0.0   YEELINK_API                                                       04/07/2016 08:22:27 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE YEELINK_API
+OBJECT MODULE PLACED IN .\list\yeelink_api.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE yeelink_api.c OMF2 BROWSE DEBUG PRINT(.\list\yeelink_api.lst) TABS(2) OBJEC
+                    -T(.\list\yeelink_api.obj)
+
+line level    source
+
+   1          #include "yeelink_api.h"
+   2          #include "sim900a.h"
+   3          #include "task.h"
+   4          #include <stdio.h>
+   5          #include <string.h>
+   6          #include <intrins.h>
+   7          #include "extension.h"
+   8          
+   9          workflow_t xdata yeelink_post_value;
+  10          static int statistics_success = 0, statistics_timeout = 0, statistics_failure = 0;
+  11          
+  12          void yeelink_show_statistics() {
+  13   1        printf("success: %d | timeout: %d | failure: %d\r\n", 
+  14   1          statistics_success, statistics_timeout, statistics_failure);
+  15   1      }
+  16          
+  17          #define YEELINK_REQ_SIZE  200
+  18          static char xdata request_header[YEELINK_REQ_SIZE];
+  19          static char xdata request_json_body[YEELINK_REQ_SIZE];
+  20          static char xdata request_url[YEELINK_REQ_SIZE];
+  21          
+  22          static void http_action_url(char xdata *url, char *sensor_id) {
+  23   1        sprintf(url, "api.yeelink.net/v1.0/device/%s/sensor/%s/datapoints", DEVICE_ID, sensor_id);
+  24   1      }
+  25          
+  26          static void numeric_sensor_json_body_i(char xdata *json, int value) {
+  27   1        sprintf(json, "{\"value\":%d}\r\n", value);
+  28   1      }
+  29          
+  30          static void numeric_sensor_json_body_f(char xdata *json, float value) {
+  31   1        sprintf(json, "{\"value\":%f}\r\n", value);
+  32   1      }
+  33          
+  34          static void yeelink_task_set_url() {
+  35   1        set_http_param_with_string("URL", request_url);
+  36   1      }
+  37          
+  38          static void yeelink_task_set_api_key() {
+  39   1        sprintf(request_header, "U-ApiKey: %s", API_KEY);
+  40   1        set_http_param_with_string("USERDATA", request_header);
+  41   1      }
+  42          
+  43          static void yeelink_task_not_accept_body_compress() {
+  44   1        sprintf(request_header, "%s", "Accept-Encoding: identity");
+  45   1        set_http_param_with_string("USERDATA", request_header);
+  46   1      }
+  47          
+  48          static void yeelink_task_begin_set_body() {
+  49   1        int body_size = strlen(request_json_body);
+  50   1        load_post_body_async(body_size, 1500); // 2000ms download timeout
+  51   1      }
+  52          
+  53          static void yeelink_task_set_body() {
+  54   1        char *body = request_json_body;
+C51 COMPILER V9.52.0.0   YEELINK_API                                                       04/07/2016 08:22:27 PAGE 2   
+
+  55   1        for (; *body != 0; body++)  {
+  56   2          TX_write2buff(&COM3, *body);
+  57   2          // TX_write2buff(&COM1, *body);
+  58   2        }
+  59   1      }
+  60          
+  61          static void yeelink_task_start_session() {
+  62   1        http_action_post();
+  63   1      }
+  64          
+  65          static void yeelink_task_wait_session() {
+  66   1        _nop_();
+  67   1      }
+  68          
+  69          #define POST_VALUE_WORKFLOW_STEP    8
+  70          static code yeelink_task yeelink_pv_wf_tasks[POST_VALUE_WORKFLOW_STEP] = {
+  71            init_http_service,            // OK
+  72            http_service_bind_bearer_profile,   // OK
+  73            yeelink_task_set_url,           // OK
+  74            // bypass,
+  75            // bypass,
+  76            yeelink_task_set_api_key,       // OK
+  77            yeelink_task_begin_set_body,      // DOWNLOAD
+  78            yeelink_task_set_body,          // OK
+  79            yeelink_task_start_session,       // OK
+  80            yeelink_task_wait_session       // +HTTPACTION:1,200,
+  81          };
+  82          
+  83          static code char *yeelink_pv_wf_expected_flow_condition[POST_VALUE_WORKFLOW_STEP] = {
+  84            SIM900A_RESPONSE_DEFAULT,
+  85            SIM900A_RESPONSE_DEFAULT,
+  86            SIM900A_RESPONSE_DEFAULT,
+  87            SIM900A_RESPONSE_DEFAULT,
+  88            SIM900A_RESPONSE_DOWNLOAD,
+  89            SIM900A_RESPONSE_DEFAULT,
+  90            SIM900A_RESPONSE_DEFAULT,
+  91            SIM900A_RESPONSE_HTTPACTION
+  92          };
+  93          
+  94          static code char *yeelink_pv_wf_expected_terminate_condition[POST_VALUE_WORKFLOW_STEP] = {
+  95            SIM900A_RESPONSE_ERROR,
+  96            SIM900A_RESPONSE_ERROR,
+  97            SIM900A_RESPONSE_ERROR,
+  98            SIM900A_RESPONSE_ERROR,
+  99            SIM900A_RESPONSE_ERROR,
+ 100            SIM900A_RESPONSE_ERROR,
+ 101            SIM900A_RESPONSE_ERROR,
+ 102            SIM900A_RESPONSE_ERROR
+ 103          };
+ 104          
+ 105          static chk_res_t pv_wf_check_response(char *response) {
+ 106   1        u8 task_id = yeelink_post_value.task_id;
+ 107   1      
+ 108   1        if (isEqual(response, yeelink_pv_wf_expected_terminate_condition[task_id]))
+ 109   1          return failure;
+ 110   1      
+ 111   1        if (task_id == POST_VALUE_WORKFLOW_STEP - 1) {
+ 112   2          u8 method; int status_code;
+ 113   2          int n = sscanf(response, SIM900A_RESPONSE_HTTPACTION, &method, &status_code);
+ 114   2      
+ 115   2          if (n == 2 && method == SIM900A_HTTPACTION_POST) {
+ 116   3            printf("+HTTPACTION:%bu,%d,0\r\n",method, status_code);
+C51 COMPILER V9.52.0.0   YEELINK_API                                                       04/07/2016 08:22:27 PAGE 3   
+
+ 117   3            if (status_code == 200) return success;
+ 118   3            else return failure;
+ 119   3          } 
+ 120   2        }
+ 121   1      
+ 122   1        if (task_id < POST_VALUE_WORKFLOW_STEP) {
+ 123   2          if (isEqual(response, yeelink_pv_wf_expected_flow_condition[task_id])) 
+ 124   2            return success;
+ 125   2        }
+ 126   1      
+ 127   1        return ninterested;
+ 128   1      }
+ 129          
+ 130          static bool pv_wf_callback(char *response, int len) {
+ 131   1      
+ 132   1        chk_res_t chk_result = pv_wf_check_response(response);
+ 133   1      
+ 134   1        if (chk_result == ninterested) {
+ 135   2          return false;
+ 136   2        }
+ 137   1      
+ 138   1        if (chk_result == failure) {
+ 139   2          ++statistics_failure;
+ 140   2          finish_workflow_before_next_flow(YEELINK_POST_VALUE_WORKFLOW_ID);
+ 141   2          return true;
+ 142   2        }
+ 143   1      
+ 144   1        ++yeelink_post_value.task_id;
+ 145   1        if (yeelink_post_value.task_id == POST_VALUE_WORKFLOW_STEP) {
+ 146   2          ++statistics_success;
+ 147   2          finish_workflow_before_next_flow(YEELINK_POST_VALUE_WORKFLOW_ID);
+ 148   2        } else {
+ 149   2          yeelink_post_value.processing = YEELINK_WF_TIMEOUT;
+ 150   2          continue_workflow_at_next_round(YEELINK_POST_VALUE_WORKFLOW_ID);
+ 151   2        }
+ 152   1      
+ 153   1        return true;
+ 154   1      }
+*** WARNING C280 IN LINE 130 OF yeelink_api.c: 'len': unreferenced local variable
+ 155          
+ 156          static void pv_wf_start() {
+ 157   1        yeelink_post_value.task_id = 0;
+ 158   1        yeelink_post_value.processing = YEELINK_WF_TIMEOUT;
+ 159   1        continue_workflow_at_next_round(YEELINK_POST_VALUE_WORKFLOW_ID);
+ 160   1      } 
+ 161          
+ 162          static void pv_wf_timeout() {
+ 163   1        ++statistics_timeout;
+ 164   1      }
+ 165          
+ 166          static void pv_wf_go(u8 task_id) {
+ 167   1        if (task_id < POST_VALUE_WORKFLOW_STEP)
+ 168   1          yeelink_pv_wf_tasks[task_id]();
+ 169   1      }
+ 170          
+ 171          void yeelink_init() {
+ 172   1        yeelink_post_value.uart_id = YEELINK_WF_UART_ID;
+ 173   1        yeelink_post_value.workflow_id = YEELINK_POST_VALUE_WORKFLOW_ID;
+ 174   1        yeelink_post_value.task_id = TASK_ID_NONE;
+ 175   1        yeelink_post_value.processing = 0;
+ 176   1        yeelink_post_value.callback = pv_wf_callback;
+ 177   1        yeelink_post_value.start = pv_wf_start;
+C51 COMPILER V9.52.0.0   YEELINK_API                                                       04/07/2016 08:22:27 PAGE 4   
+
+ 178   1        yeelink_post_value.clean = terminate_http_service;
+ 179   1        yeelink_post_value.timeout = pv_wf_timeout;
+ 180   1        yeelink_post_value.go = pv_wf_go;
+ 181   1        workflow_registration[YEELINK_POST_VALUE_WORKFLOW_ID] = &yeelink_post_value;
+ 182   1      }
+ 183          
+ 184          void yeelink_gen_task() {
+ 185   1        static u8 task_interval = 5;
+ 186   1      
+ 187   1        if (network_status == NETWORK_STATUS_OFFLINE) return;
+ 188   1        if (working_for_duty(SAPBR_DUTY) || 
+ 189   1          working_for_duty(CONN_CHECK_DUTY)) return;
+ 190   1      
+ 191   1        if (current_workflow[YEELINK_WF_UART_ID] != NULL && 
+ 192   1          current_workflow[YEELINK_WF_UART_ID]->workflow_id == YEELINK_POST_VALUE_WORKFLOW_ID)
+ 193   1          return;
+ 194   1      
+ 195   1        if (!task_interval || !--task_interval) {
+ 196   2          task_interval = YEELINK_TASK_INTERVEL;
+ 197   2          call_for_duty(YEELINK_DUTY);
+ 198   2        }
+ 199   1      }
+ 200          
+ 201          void numeric_sensor_post_value_i(char *sensor_id, int value) {
+ 202   1        // memset(request_json_body, 0, YEELINK_REQ_SIZE);
+ 203   1        // memset(request_url, 0, YEELINK_REQ_SIZE);
+ 204   1        http_action_url(request_url, sensor_id);
+ 205   1        numeric_sensor_json_body_i(request_json_body, value);
+ 206   1        start_workflow(&yeelink_post_value);
+ 207   1      }
+ 208          
+ 209          void numeric_sensor_post_value_f(char *sensor_id, float value) {
+ 210   1        // memset(request_json_body, 0, YEELINK_REQ_SIZE);
+ 211   1        // memset(request_url, 0, YEELINK_REQ_SIZE);
+ 212   1        http_action_url(request_url, sensor_id);
+ 213   1        numeric_sensor_json_body_f(request_json_body, value);
+ 214   1        start_workflow(&yeelink_post_value);
+ 215   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    814    ----
+   CONSTANT SIZE    =    351    ----
+   XDATA SIZE       =    619    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      7      29
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

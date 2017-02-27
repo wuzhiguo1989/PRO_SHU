@@ -1,0 +1,232 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              02/29/2016 20:28:50 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE main.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          *   STC-ISP导入芯片信息至Keil
+   3          *   采用STC15W4K32S4系列
+   4          *   假定测试芯片的工作频率为24.000MHz
+   5          */
+   6          
+   7          #include "config.h"
+   8          #include "utils.h"
+   9          #include "sync.h"
+  10          #include "ble.h"
+  11          #include "task.h"
+  12          #include "share.h"
+  13          #include "adc.h"
+  14          #include "key.h"
+  15          #include "led.h"
+  16          #include "string.h"
+  17          #include "alarm.h"
+  18          #include "debug.h"
+  19          #include "usart.h"
+  20          
+  21          static void init_system_component();
+  22          static void init_logic_params();
+  23          
+  24          void Delay500ms()       //@24.000MHz
+  25          {
+  26   1          unsigned char i, j, k;
+  27   1      
+  28   1          _nop_();
+  29   1          _nop_();
+  30   1          i = 46;
+  31   1          j = 153;
+  32   1          k = 245;
+  33   1          do
+  34   1          {
+  35   2              do
+  36   2              {
+  37   3                  while (--k);
+  38   3              } while (--j);
+  39   2          } while (--i);
+  40   1      }
+  41          
+  42          
+  43          void instant_effective_init() {
+  44   1          init_system_component();
+  45   1          init_logic_params();
+  46   1      }
+  47          
+  48          
+  49          void main()
+  50          {  
+  51   1          // stop catching interrupt
+  52   1          EA = 0;
+  53   1          
+  54   1          // delay
+  55   1          Delay500ms();
+C51 COMPILER V9.52.0.0   MAIN                                                              02/29/2016 20:28:50 PAGE 2   
+
+  56   1      
+  57   1          instant_effective_init();
+  58   1      
+  59   1      
+  60   1          // begin catching interrupt
+  61   1          EA = 1;
+  62   1          while(1) {
+  63   2              // Feed dog
+  64   2              reset_watch_dog();
+  65   2              // 运行自检程序
+  66   2              if(!JC)
+  67   2              {
+  68   3                  key_cabinet_number = 1;
+  69   3                  Delay500ms();
+  70   3                  while(1)
+  71   3                  {
+  72   4                      u8 i;
+  73   4                      // Feed dog
+  74   4                      reset_watch_dog();
+  75   4              if(JC == 1)
+  76   4                      {
+  77   5                          Delay500ms();
+  78   5                          performance_status = 0;
+  79   5                          candidate_driver_signal_recieving = NO;
+  80   5                          candidate_time_out_signal_recieving = NO;
+  81   5                          INT_PROC = 0;
+  82   5                          init_uart();
+  83   5                          init_logic_params();
+  84   5                          break;
+  85   5                      }
+  86   4                      for(i = 1; i <= 30; i++)
+  87   4                      {
+  88   5                          if(i <= 28)
+  89   5                  {
+  90   6                  putchar(i);
+  91   6                              Delay500ms();
+  92   6                }
+  93   5                  else
+  94   5                {
+  95   6                  driver_high_pin(i);
+  96   6                  Delay500ms();
+  97   6                  driver_low_pin(i);
+  98   6                }                    
+  99   5                while(1)
+ 100   5                          {
+ 101   6                              u32 key_mask = 0x00000001;
+ 102   6                              u32 key = IO_KeyScan_G() & 0x3fffffff;
+ 103   6                              // Feed dog
+ 104   6                              reset_watch_dog();
+ 105   6                              if(key & (key_mask << (i-1)))
+ 106   6                              {
+ 107   7                                  display_error(0);
+ 108   7                                  break;
+ 109   7                              }
+ 110   6                              else
+ 111   6                                  display_error(i);
+ 112   6                          }
+ 113   5                      }
+ 114   4                  }
+ 115   3              }        
+ 116   2              // 数码管显示
+ 117   2              led_display();
+C51 COMPILER V9.52.0.0   MAIN                                                              02/29/2016 20:28:50 PAGE 3   
+
+ 118   2              // 电源检测
+ 119   2          voltage_performance_detected();
+ 120   2              //TX1_write2buff(performance_status);
+ 121   2              // 柜门检测(5ms检测一次)
+ 122   2              if(INT_PROC & KEY_DUTY)
+ 123   2              {
+ 124   3                  // if (USART_RX_Block(&COM1)) 
+ 125   3                  //     INT_PROC |= UART_DUTY;
+ 126   3                  key_duty_task();
+ 127   3                  INT_PROC &= ~KEY_DUTY;
+ 128   3                  continue;
+ 129   3              }
+ 130   2      
+ 131   2              if(INT_PROC & UART_DUTY)
+ 132   2              {
+ 133   3                  handle_uart_data();
+ 134   3                  INT_PROC &= ~UART_DUTY;
+ 135   3                  continue;
+ 136   3              }
+ 137   2      
+ 138   2              // 柜门开锁持续时间到
+ 139   2              if(INT_PROC & DRIVER_DUTY)
+ 140   2              {
+ 141   3                  driver_low_pin(key_cabinet_number);
+ 142   3                  candidate_driver_signal_recieving = NO;
+ 143   3                  reset_all_counters();          
+ 144   3                  INT_PROC &= ~DRIVER_DUTY;
+ 145   3                  continue;
+ 146   3              }
+ 147   2      
+ 148   2              // 5s等待时间到
+ 149   2              if(INT_PROC & TIME_OUT_DUTY)
+ 150   2              {
+ 151   3                  // timeout
+ 152   3                  candidate_time_out_signal_recieving = NO;
+ 153   3                  //进入广播
+ 154   3                  BLE_Enter_Adversting();
+ 155   3                  INT_PROC &= ~TIME_OUT_DUTY;
+ 156   3                  continue;
+ 157   3              }
+ 158   2      
+ 159   2          }
+ 160   1      }
+ 161          
+ 162          
+ 163          static void init_system_component() {  
+ 164   1          // timer
+ 165   1          init_system_tick();
+ 166   1      
+ 167   1          // ble
+ 168   1          BLE_Init();
+ 169   1      
+ 170   1          // 
+ 171   1          debug_init();
+ 172   1          
+ 173   1          // ADC
+ 174   1          init_adc();
+ 175   1      
+ 176   1          //KEY
+ 177   1          key_io_init();
+ 178   1      
+ 179   1          // DRIVER_IO
+C51 COMPILER V9.52.0.0   MAIN                                                              02/29/2016 20:28:50 PAGE 4   
+
+ 180   1          driver_io_init();
+ 181   1      
+ 182   1          // DISPLAY_IO
+ 183   1          display_io_init();
+ 184   1      
+ 185   1          // ALARM_IO
+ 186   1          alarm_io_init();
+ 187   1      }
+ 188          
+ 189          
+ 190          // 默认柜锁关闭
+ 191          static void init_logic_params() {
+ 192   1          driver_low_pin(29);
+ 193   1          driver_low_pin(30);
+ 194   1          ALARM = 0;
+ 195   1          memset(order_for_badkey, 0, 30);
+ 196   1      }
+ 197          
+ 198          
+ 199          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    396    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----       9
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

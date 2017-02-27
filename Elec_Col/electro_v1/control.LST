@@ -1,0 +1,159 @@
+C51 COMPILER V9.52.0.0   CONTROL                                                           03/03/2016 19:04:49 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE CONTROL
+OBJECT MODULE PLACED IN control.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE control.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "control.h"
+   2          #include "string.h"
+   3          #include "usart.h"
+   4          #include "task.h"
+   5          #include "stdio.h"
+   6          #include "jl17467pqw.h"
+   7          #include "e2prom.h"
+   8          #include "share.h"
+   9          
+  10          #define circumference  957L 
+  11          
+  12          
+  13          static volatile u8 xdata RX2_Buffer[COM_RX2_Lenth];    //接收缓冲
+  14          static volatile u16  xdata mileage_per_second = 0;
+  15          static volatile u32  xdata mileage_in_total;
+  16          static volatile u32  xdata power_per_second = 0;
+  17          static volatile u32  xdata mileage = 0;
+  18          u16  period_speed_counter[SPEED_CAL_COUNTER];
+  19          u8  period_interval = 0;
+  20          u16 speed_counter_total = 0;
+  21          // u16 speed_counter_total_pre = 0;
+  22          
+  23          void Store_mileage() 
+  24          {
+  25   1          Store_mileage_total(mileage_in_total);
+  26   1      }
+  27          
+  28          
+  29          
+  30          void reset_speed_counter()
+  31          {
+  32   1          u8 i;
+  33   1          for(i = 0; i < SPEED_CAL_COUNTER; i++)
+  34   1              period_speed_counter[i] = 0;
+  35   1          period_interval = 0;
+  36   1          speed_counter_total = 0;
+  37   1      }
+  38          
+  39          void mileage_init()
+  40          {
+  41   1          mileage = 0;
+  42   1      }
+  43          
+  44          void control_init() {
+  45   1          
+  46   1          mileage_in_total = Read_mileage_total(); // cm
+  47   1      
+  48   1          jt17467pqw_set_speed(mileage_per_second);
+  49   1          jt17467pqw_set_mileage(mileage);
+  50   1          jt17467pqw_set_mileage_total(mileage_in_total/10000);
+  51   1          jt17467pqw_set_power(power_per_second);
+  52   1          memset(RX2_Buffer, 0, COM_RX2_Lenth);
+  53   1          USART_Init(&COM2); 
+  54   1      // 只能使用定时器2做波特率发生器
+  55   1          S2_8bit();
+C51 COMPILER V9.52.0.0   CONTROL                                                           03/03/2016 19:04:49 PAGE 2   
+
+  56   1          S2_USE_P10P11();
+  57   1      
+  58   1          S2_RX_Enable();
+  59   1          S2_Int_Enable();    
+  60   1          USART_Share_Timer2();
+  61   1          SET_TI2();
+  62   1      }
+  63          
+  64          
+  65          void speed_cal_display()
+  66          {
+  67   1          u8 i;
+  68   1          u16 speed;
+  69   1          if(!speed_counter)
+  70   1          {
+  71   2              speed = 0;
+  72   2              reset_speed_counter();
+  73   2          }
+  74   1          else
+  75   1          {
+  76   2              speed = (circumference * 360) / speed_counter; //0.01km/h
+  77   2              mileage_in_total += circumference / 10; // cm 
+  78   2              mileage += circumference / 10;
+  79   2          }
+  80   1          
+  81   1          period_speed_counter[period_interval++] = speed;
+  82   1          if(period_interval == SPEED_CAL_COUNTER)
+  83   1                  period_interval = 0;
+  84   1      
+  85   1          speed_counter_total = 0;
+  86   1      
+  87   1          for(i = 0; i < SPEED_CAL_COUNTER; i++)
+  88   1              speed_counter_total = speed_counter_total + period_speed_counter[i];
+  89   1      
+  90   1          speed_counter_total >>= 3;
+  91   1      
+  92   1          jt17467pqw_set_speed(speed_counter_total / 10);
+  93   1      
+  94   1          // speed_counter_total_pre = speed_counter_total;
+  95   1      
+  96   1      
+  97   1          jt17467pqw_set_mileage(mileage / 10000);
+  98   1          jt17467pqw_set_mileage_total(mileage_in_total / 10000); 
+  99   1      }
+ 100          
+ 101          
+ 102          // 直接赋值
+ 103          void control_process_received() {
+ 104   1          power_per_second = (RX2_Buffer[1] << 8 | RX2_Buffer[2]);
+ 105   1          jt17467pqw_set_power(power_per_second);
+ 106   1      }
+ 107          
+ 108          // 保证每次取到值
+ 109          void UART2_int (void) interrupt 8
+ 110          {
+ 111   1          if((S2CON & 1) != 0)
+ 112   1          {
+ 113   2              if(S2BUF == 'S' && !COM2.B_RX_OK)
+ 114   2                  COM2.B_RX_OK = 1;
+ 115   2              if(COM2.B_RX_OK)
+ 116   2                  RX2_Buffer[COM2.RX_Cnt++] = S2BUF;
+ 117   2              if (COM2.RX_Cnt == COM_RX2_Lenth)    
+C51 COMPILER V9.52.0.0   CONTROL                                                           03/03/2016 19:04:49 PAGE 3   
+
+ 118   2              {
+ 119   3                  COM2.RX_Cnt = 0;
+ 120   3                  COM2.B_RX_OK = 0;
+ 121   3                  INT_PROC |= CONTROL_RECEIVE_DUTY;
+ 122   3              } 
+ 123   2              S2CON &= ~1;    //Clear Rx flag
+ 124   2          }
+ 125   1      
+ 126   1          if((S2CON & 2) != 0)
+ 127   1          {
+ 128   2              S2CON &= ~2;    //Clear Tx flag
+ 129   2              COM2.B_TX_busy = 0;
+ 130   2          }
+ 131   1      }
+ 132          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    529    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     17    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     19       2
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,14 @@
+"STARTUP.obj",
+"sync.obj",
+"main.obj",
+"task.obj",
+"key.obj",
+"led.obj",
+"pwm.obj",
+"display.obj",
+"power.obj",
+"lm567.obj",
+"usart.obj" 
+TO "lock" 
+
+REMOVEUNUSED 

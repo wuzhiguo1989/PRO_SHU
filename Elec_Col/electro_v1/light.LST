@@ -1,0 +1,133 @@
+C51 COMPILER V9.52.0.0   LIGHT                                                             03/03/2016 19:04:48 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LIGHT
+OBJECT MODULE PLACED IN light.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE light.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "light.h"
+   2          #include "jl17467pqw.h"
+   3          #include "share.h"
+   4          #include "beep.h"
+   5          #include "utils.h"
+   6          #include "signal.h"
+   7          
+   8          
+   9          void light_io_init()
+  10          {
+  11   1        push_pull(2, 0x0F);
+  12   1      }
+  13          
+  14          void light_init()
+  15          {
+  16   1        STOP_LIGHT = 0;
+  17   1        R_LIHGT = 0;
+  18   1        L_LIHGT = 0;
+  19   1        BACK = 0;
+  20   1        RELAY = 0;
+  21   1      }
+  22          
+  23          
+  24          
+  25          void light_follow_speak()
+  26          {
+  27   1        if(state_current != NORMAL_STATE)
+  28   1        {
+  29   2          if(MUTE)
+  30   2          {
+  31   3          //  RELAY = 1;
+  32   3            RELAY = 0;
+  33   3            R_LIHGT = 1;
+  34   3            L_LIHGT = 1;
+  35   3          }
+  36   2          else
+  37   2          {
+  38   3            RELAY = 0;
+  39   3            R_LIHGT = 0;
+  40   3            L_LIHGT = 0;
+  41   3          }
+  42   2          BACK = 0;
+  43   2          display_clean();
+  44   2        }
+  45   1        else 
+  46   1        {
+  47   2          BACK = 1;
+  48   2          RELAY = 1;
+  49   2        }
+  50   1      }
+  51          
+  52          
+  53          void key_scan_task()
+  54          {
+  55   1        if(!L_KEY)
+C51 COMPILER V9.52.0.0   LIGHT                                                             03/03/2016 19:04:48 PAGE 2   
+
+  56   1        {
+  57   2          jt17467pqw_set_left_lamps(time_colon_icon);
+  58   2          L_LIHGT = time_colon_icon;
+  59   2          // 喇叭优先级高
+  60   2          if(speak_mode_set & 0x0100)
+  61   2          {
+  62   3            speak_mode = buzzer;
+  63   3            MUTE = 1;
+  64   3          }
+  65   2          else
+  66   2          {
+  67   3            speak_mode_set |= 0x40;
+  68   3                speak_mode = light_alert;
+  69   3                MUTE = time_colon_icon;
+  70   3              }
+  71   2        }
+  72   1        else
+  73   1        {
+  74   2              jt17467pqw_set_left_lamps(0);
+  75   2          L_LIHGT = 0;
+  76   2          speak_mode_set &= ~0x40;
+  77   2        }
+  78   1      
+  79   1        if(!R_KEY)
+  80   1        {
+  81   2          jt17467pqw_set_right_lamps(time_colon_icon);
+  82   2          R_LIHGT = time_colon_icon;
+  83   2          if(speak_mode_set & 0x0100)
+  84   2          {
+  85   3            speak_mode = buzzer;
+  86   3            MUTE = 1;
+  87   3          }
+  88   2          else
+  89   2          {
+  90   3            speak_mode_set |= 0x80;
+  91   3                speak_mode = light_alert;
+  92   3                MUTE = time_colon_icon;
+  93   3              }
+  94   2      
+  95   2        }
+  96   1        else
+  97   1        {
+  98   2      
+  99   2              jt17467pqw_set_right_lamps(0);
+ 100   2          R_LIHGT = 0;
+ 101   2          speak_mode_set &= ~0x80;
+ 102   2        }
+ 103   1      
+ 104   1        jt17467pqw_set_head_lamps(!D_KEY);
+ 105   1        jt17467pqw_set_bluetooth_linked(BT_IND);
+ 106   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    191    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+C51 COMPILER V9.52.0.0   LIGHT                                                             03/03/2016 19:04:48 PAGE 3   
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,287 @@
+C51 COMPILER V9.52.0.0   BK8000L                                                           10/31/2015 19:50:58 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE BK8000L
+OBJECT MODULE PLACED IN bk8000l.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE bk8000l.c ROM(COMPACT) BROWSE DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "bk8000l.h"
+   2          #include "string.h"
+   3          #include "usart.h"
+   4          #include "stdio.h"
+   5          
+   6          #define bluetooth_send_command(x)   PrintString1(x)
+   7          #define bluetooth_recieve_data(x)   GetString1(x)
+   8          
+   9          static volatile u8 idata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲
+  10          static void TX1_write2buff(const u8 dat) 
+  11          {
+  12   1          TX1_Buffer[COM1.TX_write] = dat;        // 装发送缓冲
+  13   1          if(++COM1.TX_write >= COM_TX1_Lenth)    
+  14   1              COM1.TX_write = 0;
+  15   1      
+  16   1          if(COM1.B_TX_busy == 0)                 // 空闲
+  17   1          {  
+  18   2              COM1.B_TX_busy = 1;                 // 标志忙
+  19   2              TI = 1;                             // 触发发送中断
+  20   2          }
+  21   1      }
+  22          
+  23          
+  24          static void PrintString1(u8 *puts)
+  25          {
+  26   1          for (; *puts != 0;  puts++)  
+  27   1              TX1_write2buff(*puts);     //遇到停止符0结束
+  28   1      
+  29   1      }
+  30          
+  31          void Bk8000l_Init() {
+  32   1      
+  33   1          memset(TX1_Buffer, 0, COM_TX1_Lenth);
+  34   1          USART_Init(&COM1);
+  35   1      
+  36   1          S1_8bit();
+  37   1          S1_BRT_UseTimer2();     // S1 BRT Use Timer2;
+  38   1      
+  39   1          S1_Int_Enable();        // 允许中断
+  40   1          S1_RX_Enable();         // Rx 接收允许
+  41   1          S1_USE_P30P31();
+  42   1          S1_TXD_RXD_OPEN();
+  43   1      
+  44   1          USART_Share_Timer2();
+  45   1      }
+  46          
+  47          void Bk8000l_Sync_Year(u8 param) {
+  48   1          char cmd[11] = "AT+SY";
+  49   1          u8 n = 5;
+  50   1          cmd[n++] = '0' + param/100;
+  51   1          cmd[n++] = param/10 - param/100*10 + '0';
+  52   1          cmd[n++] = param%10 + '0';
+  53   1          strcat(cmd,"\r\n");
+  54   1          bluetooth_send_command(cmd);
+  55   1      }
+C51 COMPILER V9.52.0.0   BK8000L                                                           10/31/2015 19:50:58 PAGE 2   
+
+  56          void Bk8000l_Sync_Month(u8 param)
+  57          {
+  58   1          
+  59   1          char cmd[10] = "AT+AM";
+  60   1          u8 n = 5;
+  61   1          cmd[n++] = '0' + param/10;
+  62   1          cmd[n++] = '0' + param%10;
+  63   1          strcat(cmd,"\r\n");
+  64   1          bluetooth_send_command(cmd);
+  65   1      }
+  66          void Bk8000l_Sync_Day(u8 param)
+  67          {
+  68   1          char cmd[10] = "AT+SD";
+  69   1          u8 n = 5;
+  70   1          cmd[n++] = '0' + param/10;
+  71   1          cmd[n++] = '0' + param%10;
+  72   1          strcat(cmd,"\r\n");
+  73   1          bluetooth_send_command(cmd); 
+  74   1      }
+  75          void Bk8000l_Sync_Hour(u8 param)
+  76          {
+  77   1          char cmd[10] = "AT+SH";
+  78   1          u8 n = 5;
+  79   1          cmd[n++] = '0' + param/10;
+  80   1          cmd[n++] = '0' + param%10;
+  81   1          strcat(cmd,"\r\n");
+  82   1          bluetooth_send_command(cmd); 
+  83   1      }
+  84          void Bk8000l_Sync_Minute(u8 param)
+  85          {
+  86   1          char cmd[10] = "AT+BM";
+  87   1          u8 n = 5;
+  88   1          cmd[n++] = '0' + param/10;
+  89   1          cmd[n++] = '0' + param%10;
+  90   1          strcat(cmd,"\r\n");
+  91   1          bluetooth_send_command(cmd); 
+  92   1      }
+  93          
+  94          void Bk8000l_Sync_Time(u8 year_param, u8 month_param, u8 day_param, u8 hour_param,u8 minute_param)
+  95          {
+  96   1          if(year_param > 199 || month_param > 12 || day_param > 31 || hour_param > 24 || minute_param > 60)
+  97   1              return ;
+  98   1          else{
+  99   2                Bk8000l_Sync_Year(year_param);
+ 100   2                Bk8000l_Sync_Month(month_param);
+ 101   2                Bk8000l_Sync_Day(day_param);
+ 102   2                Bk8000l_Sync_Hour(hour_param);
+ 103   2                Bk8000l_Sync_Minute(minute_param);
+ 104   2          }
+ 105   1      }
+ 106          
+ 107          void Bk8000l_Change_DisplayMode(u8 param)
+ 108          {
+ 109   1          char cmd[10] = "AT+SM";
+ 110   1          u8 n = 5;
+ 111   1          if(param > 10)
+ 112   1              return ;
+ 113   1          else{
+ 114   2              cmd[n++] = '0' + param/10;
+ 115   2              cmd[n++] = '0' + param%10;
+ 116   2              strcat(cmd,"\r\n");
+ 117   2              bluetooth_send_command(cmd);
+C51 COMPILER V9.52.0.0   BK8000L                                                           10/31/2015 19:50:58 PAGE 3   
+
+ 118   2          } 
+ 119   1      }
+ 120          
+ 121          void Bk8000l_Change_DisplayLimus(u8 param)
+ 122          {
+ 123   1          char cmd[10] = "AT+SL";
+ 124   1          u8 n = 5;
+ 125   1          if(param > 15)
+ 126   1              return ;
+ 127   1          else{
+ 128   2              cmd[n++] = '0' + param/10;
+ 129   2              cmd[n++] = '0' + param%10;
+ 130   2              strcat(cmd,"\r\n");
+ 131   2              bluetooth_send_command(cmd);
+ 132   2          } 
+ 133   1      }
+ 134          
+ 135          void Bk8000l_Change_RedColor(u8 param)
+ 136          {
+ 137   1          char cmd[11] = "AT+SR";
+ 138   1          u8 n = 5;
+ 139   1        cmd[n++] = '0' + param/100;
+ 140   1        cmd[n++] = '0' + param/10 - param/100*10;
+ 141   1        cmd[n++] = '0' + param%10;
+ 142   1        strcat(cmd,"\r\n");
+ 143   1          bluetooth_send_command(cmd);
+ 144   1      }
+ 145          void Bk8000l_Change_GreenColor(u8 param)
+ 146          {
+ 147   1          char cmd[11] = "AT+SG";
+ 148   1          u8 n = 5;
+ 149   1          cmd[n++] = '0' + param/100;
+ 150   1          cmd[n++] = '0' + param/10 - param/100*10;
+ 151   1          cmd[n++] = '0' + param%10;
+ 152   1          strcat(cmd,"\r\n");
+ 153   1          bluetooth_send_command(cmd);
+ 154   1      }
+ 155          void Bk8000l_Change_BlueColor(u8 param)
+ 156          {
+ 157   1          char cmd[11] = "AT+SB";
+ 158   1          u8 n = 5;
+ 159   1          cmd[n++] = '0' + param/100;
+ 160   1          cmd[n++] = '0' + param/10 - param/100*10;
+ 161   1          cmd[n++] = '0' + param%10;
+ 162   1          strcat(cmd,"\r\n");
+ 163   1          bluetooth_send_command(cmd);
+ 164   1      
+ 165   1      }
+ 166          
+ 167          void Bk8000l_Sync_Color(u8 red_param, u8 green_param, u8 blue_param)
+ 168          {
+ 169   1          if(red_param > 255 || green_param > 255 || red_param > 255)
+ 170   1              return ;
+ 171   1          else
+ 172   1          {
+ 173   2              Bk8000l_Change_RedColor(red_param);
+ 174   2              Bk8000l_Change_GreenColor(green_param);
+ 175   2              Bk8000l_Change_BlueColor(blue_param);        
+ 176   2          }
+ 177   1      }
+ 178          
+ 179          void Bk8000l_Sync_ALARM1_Hour(u8 param)
+C51 COMPILER V9.52.0.0   BK8000L                                                           10/31/2015 19:50:58 PAGE 4   
+
+ 180          {
+ 181   1          char cmd[12] = "AT+A1SH";
+ 182   1          u8 n = 7;
+ 183   1          cmd[n++] = '0' + param/10;
+ 184   1          cmd[n++] = '0' + param%10;
+ 185   1          strcat(cmd,"\r\n");
+ 186   1          bluetooth_send_command(cmd); 
+ 187   1      }
+ 188          void Bk8000l_Sync_ALARM1_Minute(u8 param)
+ 189          {
+ 190   1          char cmd[12] = "AT+A1BM";
+ 191   1          u8 n = 7;
+ 192   1          cmd[n++] = '0' + param/10;
+ 193   1          cmd[n++] = '0' + param%10;
+ 194   1          strcat(cmd,"\r\n");
+ 195   1          bluetooth_send_command(cmd); 
+ 196   1      }
+ 197          
+ 198          void Bk8000l_Sync_ALARM1(u8 hour_param,u8 minute_param)
+ 199          {
+ 200   1          if(hour_param > 24 || minute_param > 60)
+ 201   1              return ;
+ 202   1          else{
+ 203   2                Bk8000l_Sync_ALARM1_Hour(hour_param);
+ 204   2                Bk8000l_Sync_ALARM1_Minute(minute_param);
+ 205   2          }
+ 206   1      }
+ 207          
+ 208          void Bk8000l_Sync_ALARM2_Hour(u8 param)
+ 209          {
+ 210   1          char cmd[12] = "AT+A2SH";
+ 211   1          u8 n = 7;
+ 212   1          cmd[n++] = '0' + param/10;
+ 213   1          cmd[n++] = '0' + param%10;
+ 214   1          strcat(cmd,"\r\n");
+ 215   1          bluetooth_send_command(cmd); 
+ 216   1      }
+ 217          void Bk8000l_Sync_ALARM2_Minute(u8 param)
+ 218          {
+ 219   1          char cmd[12] = "AT+A2BM";
+ 220   1          u8 n = 7;
+ 221   1          cmd[n++] = '0' + param/10;
+ 222   1          cmd[n++] = '0' + param%10;
+ 223   1          strcat(cmd,"\r\n");
+ 224   1          bluetooth_send_command(cmd); 
+ 225   1      }
+ 226          
+ 227          void Bk8000l_Sync_ALARM2(u8 hour_param,u8 minute_param)
+ 228          {
+ 229   1          if(hour_param > 24 || minute_param > 60)
+ 230   1              return ;
+ 231   1          else{
+ 232   2                Bk8000l_Sync_ALARM2_Hour(hour_param);
+ 233   2                Bk8000l_Sync_ALARM2_Minute(minute_param);
+ 234   2          }
+ 235   1      }
+ 236          
+ 237          void UART1_int (void) interrupt UART1_VECTOR
+ 238          {
+ 239   1          if(RI)
+ 240   1          {
+ 241   2              RI = 0;
+C51 COMPILER V9.52.0.0   BK8000L                                                           10/31/2015 19:50:58 PAGE 5   
+
+ 242   2          }
+ 243   1      
+ 244   1          if(TI)
+ 245   1          {
+ 246   2              TI = 0;
+ 247   2              if(COM1.TX_read != COM1.TX_write)
+ 248   2              {
+ 249   3                  SBUF = TX1_Buffer[COM1.TX_read];
+ 250   3                  if(++COM1.TX_read >= COM_TX1_Lenth)     
+ 251   3                      COM1.TX_read = 0;
+ 252   3              }
+ 253   2              else    
+ 254   2                  COM1.B_TX_busy = 0;
+ 255   2          }
+ 256   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1595    ----
+   CONSTANT SIZE    =    155    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----     175
+   IDATA SIZE       =     64    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

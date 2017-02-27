@@ -1,0 +1,134 @@
+C51 COMPILER V9.52.0.0   CONTROL                                                           12/27/2016 13:09:29 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE CONTROL
+OBJECT MODULE PLACED IN control.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE control.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "control.h"
+   2          #include "string.h"
+   3          #include "task.h"
+   4          #include "stdio.h"
+   5          #include "jl17467pqw.h"
+   6          #include "e2prom.h"
+   7          #include "share.h"
+   8          #include "sync.h"
+   9          
+  10          #define circumference  957L 
+  11          
+  12          static volatile u16  xdata mileage_per_second = 0;
+  13          static volatile u32  xdata mileage_in_total;
+  14          static volatile u32  xdata mileage_in_total_simple;
+  15          static volatile u32  xdata mileage_store;
+  16          static volatile u32  xdata mileage = 0;
+  17          u16  period_speed_counter[SPEED_CAL_COUNTER];
+  18          u8  period_interval = 0;
+  19          u16 speed_counter_total = 0;
+  20          // u16 speed_counter_total_pre = 0;
+  21          
+  22          void Store_mileage_in_total() 
+  23          {
+  24   1          if(local == 511)
+  25   1          {
+  26   2              local = 0;
+  27   2              mileage_in_total_simple ++;
+  28   2              Store_mileage_total(mileage_in_total_simple);
+  29   2          }
+  30   1          else
+  31   1          {
+  32   2              Store_mileage(local);
+  33   2          }
+  34   1          local ++;
+  35   1      }
+  36          
+  37          
+  38          
+  39          void reset_speed_counter()
+  40          {
+  41   1          u8 i;
+  42   1          for(i = 0; i < SPEED_CAL_COUNTER; i++)
+  43   1              period_speed_counter[i] = 0;
+  44   1          period_interval = 0;
+  45   1          speed_counter_total = 0;
+  46   1      }
+  47          
+  48          
+  49          void control_init() {
+  50   1          local = Read_mileage();
+  51   1          mileage_in_total_simple = Read_mileage_total();
+  52   1          mileage_in_total = (mileage_in_total_simple * 512 + local) * 10000; // cm
+  53   1          mileage_store = mileage_in_total;
+  54   1          jt17467pqw_set_speed(mileage_per_second);
+  55   1          jt17467pqw_set_mileage(mileage);
+C51 COMPILER V9.52.0.0   CONTROL                                                           12/27/2016 13:09:29 PAGE 2   
+
+  56   1          jt17467pqw_set_mileage_total(mileage_in_total/10000);
+  57   1       //   jt17467pqw_set_power(power_per_second);
+  58   1      }
+  59          
+  60          
+  61          void speed_cal_display()
+  62          {
+  63   1          u8 i;
+  64   1          u16 speed;
+  65   1          if(speed_counter < 2)
+  66   1          {
+  67   2              speed = 0;
+  68   2              reset_speed_counter();
+  69   2          }
+  70   1          else
+  71   1          {
+  72   2              period_speed_counter[period_interval++] = speed_counter;
+  73   2              if(period_interval == SPEED_CAL_COUNTER)
+  74   2                  period_interval = 0;
+  75   2      
+  76   2              speed_counter_total = 0;
+  77   2      
+  78   2              for(i = 0; i < SPEED_CAL_COUNTER; i++)
+  79   2                  speed_counter_total = speed_counter_total + period_speed_counter[i];
+  80   2              speed_counter_total >>= 3;
+  81   2              // 36V
+  82   2              speed = speed_counter_total * 62 / 10; //cm
+  83   2              // 48V
+  84   2              //speed = speed_counter_total * 63 / 10; //cm
+  85   2          }
+  86   1      
+  87   1          mileage_in_total +=  speed;
+  88   1          mileage += speed;
+  89   1          // 36V
+  90   1          speed =  speed * 72 / 10;
+  91   1          // 48V
+  92   1          //speed =  speed * 8;
+  93   1          jt17467pqw_set_speed(speed / 10);
+  94   1          jt17467pqw_set_mileage(mileage / 10000);
+  95   1          jt17467pqw_set_mileage_total(mileage_in_total / 10000);
+  96   1          // 保存公里数 
+  97   1          if(mileage_in_total / 10000 - mileage_store / 10000 >= 1)
+  98   1          {
+  99   2              reset_speed_cal();
+ 100   2              reset_speed_time();
+ 101   2              Store_mileage_in_total();
+ 102   2              mileage_store = mileage_in_total;
+ 103   2          }
+ 104   1      }
+ 105          
+ 106          
+ 107          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    635    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     18    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     19       2
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+C51 COMPILER V9.52.0.0   CONTROL                                                           12/27/2016 13:09:29 PAGE 3   
+
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

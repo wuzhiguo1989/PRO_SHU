@@ -1,0 +1,98 @@
+C51 COMPILER V9.52.0.0   BEEP                                                              01/17/2017 13:47:48 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE BEEP
+OBJECT MODULE PLACED IN beep.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE beep.c OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "beep.h"
+   2          #include "intrins.h"
+   3          
+   4          u16 idata pca_next_target = 0;
+   5          static code u16 const pca_next_param[6] = {T100Hz, T4kHz, T800Hz, T600Hz, T600Hz, T600Hz};
+   6          
+   7          u16 idata pca_param = T4kHz;
+   8          
+   9          volatile bit lock_fail_from_server = 0;
+  10          volatile speak_t speak_mode = mute;
+  11          volatile lock_st status = off;
+  12          volatile bit status_in_sleep = 1;
+  13          // volatile sys_st status;
+  14          
+  15          void speak_alter_pca_init() 
+  16          {
+  17   1         pca_param = pca_next_param[alter_beep];
+  18   1      }
+  19          
+  20          void init_beep_io()
+  21          {
+  22   1          // buzzer
+  23   1        push_pull(3, 0x40);
+  24   1      
+  25   1          speak_beep_disable();
+  26   1      }
+  27          
+  28          
+  29          
+  30          void speak_init_params() {
+  31   1          CCON = 0;                       //初始化PCA控制寄存器
+  32   1                                          //PCA定时器停止
+  33   1                                          //清除CF标志
+  34   1                                          //清除模块中断标志
+  35   1          CL = 0;
+  36   1          CH = 0;
+  37   1          pca_next_target =  pca_next_target + pca_next_param[0];
+  38   1          CCAP0L = pca_next_target;
+  39   1          CCAP0H = pca_next_target >> 8;
+  40   1          CMOD = 0x00;                    //设置PCA时钟源
+  41   1                                          //禁止PCA定时器溢出中断
+  42   1        CCAPM0 = 0x49;                  //PCA模块0为16位定时器模式
+  43   1          CR = 1;
+  44   1      }
+  45          
+  46          
+  47          //PCA中断 speak发声
+  48          void pca_isr() interrupt 7 using 1 
+  49          {
+  50   1          CCF0 = 0;     //  清中断标志
+  51   1          if(!speak_mode){
+  52   2              pca_next_target =  pca_next_target + pca_next_param[speak_mode];
+  53   2              CCAP0L = pca_next_target;
+  54   2              CCAP0H = pca_next_target >> 8;       
+  55   2          } else if(speak_mode == alter_beep) {
+C51 COMPILER V9.52.0.0   BEEP                                                              01/17/2017 13:47:48 PAGE 2   
+
+  56   2              speak_beep_enable();
+  57   2              pca_next_target =  pca_next_target + pca_param;
+  58   2              CCAP0L = pca_next_target;
+  59   2              CCAP0H = pca_next_target >> 8;
+  60   2              pca_param ++;
+  61   2              if(pca_param >= T2kHz)
+  62   2                  pca_param = T4kHz;
+  63   2         } else if(speak_mode == trace_beep || speak_mode == open_beep || speak_mode == lock_beep){
+  64   2              speak_beep_enable();
+  65   2              pca_next_target =  pca_next_target + pca_next_param[speak_mode];
+  66   2              CCAP0L = pca_next_target;
+  67   2              CCAP0H = pca_next_target >> 8;
+  68   2         }
+  69   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    228    ----
+   CONSTANT SIZE    =     12    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      2    ----
+   IDATA SIZE       =      4    ----
+   BIT SIZE         =      2    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,257 @@
+C51 COMPILER V9.52.0.0   UART                                                              09/07/2015 15:57:18 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN uart.OBJ
+COMPILER INVOKED BY: F:\Keil\C51\BIN\C51.EXE uart.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "uart.h"
+   2          #include "sync.h"
+   3          #include "def.h"
+   4          #include "display.h"
+   5          #include "shared.h"
+   6          #include "intrins.h"
+   7          #include "string.h"
+   8          
+   9          static BOOL busy = NO;
+  10          #define     UART1_BUF_LENGTH    32
+  11          
+  12          
+  13          u8  TX1_Cnt;    //发送计数
+  14          u8  RX1_Cnt;    //接收计数
+  15          bit B_TX1_Busy = 0; //发送忙标志
+  16          
+  17          u8  idata RX1_Buffer[UART1_BUF_LENGTH]; //接收缓冲
+  18          u8  idata TX1_Buffer[UART1_BUF_LENGTH]; //接收缓冲
+  19          //========================================================================
+  20          // 函数: void   init_uart()
+  21          // 描述: UART1初始化函数。 
+  22          //========================================================================
+  23          void init_uart()
+  24          {
+  25   1        SCON = 0x50;                // 设置串口为8位可变波特率
+  26   1          // T2L = 0x20;                 
+  27   1          // T2H = 0xfe;                 // 9600 bps
+  28   1            T2L = 0xD8;   //设定定时初值
+  29   1        T2H = 0xFF;   //设定定时初值
+  30   1          AUXR |= 0x14;               // T2为1T模式, 并启动定时器2
+  31   1          AUXR |= 0x01;               // 选择定时器2为串口1的波特率发生器
+  32   1        PS = 1;           // 高优先级
+  33   1        uart_enable();
+  34   1          TX1_Cnt = 0;
+  35   1          RX1_Cnt = 0;
+  36   1      }
+  37          
+  38          static void SendData(u8 dat)
+  39          {
+  40   1          while (B_TX1_Busy);                   //  等待前一个数据发送完成
+  41   1          B_TX1_Busy = YES;                      
+  42   1          SBUF = dat;                     //  发送当前数据
+  43   1      }
+  44          
+  45          static void PrintString(u8 *puts)
+  46          {
+  47   1          for (; *puts != 0;  puts++)     //遇到停止符0结束
+  48   1          {
+  49   2              // SBUF = *puts;
+  50   2              // B_TX1_Busy = 1;
+  51   2              // while(B_TX1_Busy);
+  52   2                  while (B_TX1_Busy);                   //  等待前一个数据发送完成
+  53   2          B_TX1_Busy = YES;                      
+  54   2          SBUF = *puts;                     //  发送当前数据
+  55   2          }
+C51 COMPILER V9.52.0.0   UART                                                              09/07/2015 15:57:18 PAGE 2   
+
+  56   1      }
+  57          
+  58          void modify_name()
+  59          {
+  60   1         PrintString("AT+SCON+0040\r\n");
+  61   1        // PrintString("AT+UART+4\r\n");
+  62   1        //SendData(0x00);
+  63   1      }
+  64          //========================================================================
+  65          // 函数: void UART1_int (void) interrupt UART1_VECTOR
+  66          // 描述: UART1中断函数。
+  67          // 参数: nine.
+  68          // 返回: none.
+  69          // 版本: VER1.0
+  70          // 日期: 2014-11-28
+  71          // 备注: 
+  72          //========================================================================
+  73          
+  74          void UART1_int (void) interrupt 4
+  75          {
+  76   1          if(RI)
+  77   1          {
+  78   2              
+  79   2              //exint_disable(); 
+  80   2          RI = 0;
+  81   2              RX1_Buffer[RX1_Cnt] = SBUF;
+  82   2              if(++RX1_Cnt >= UART1_BUF_LENGTH)   RX1_Cnt = 0;    //防溢出
+  83   2          if (SBUF == '\n')
+  84   2          { 
+  85   3            RX1_Cnt = 0;
+  86   3            INT_PROC |= UART_PROC;
+  87   3          }
+  88   2        }
+  89   1      
+  90   1          if(TI)
+  91   1          {
+  92   2              TI = 0;
+  93   2              B_TX1_Busy = 0;
+  94   2          }
+  95   1      }
+  96          
+  97          
+  98          /*----------------------------
+  99          Parse Control Signal
+ 100          ----------------------------*/
+ 101          void 
+ 102          parse_crtl_signal(  signal_t recieved_signal) {
+ 103   1        // local variable
+ 104   1        u8 dispatched_signal;
+ 105   1        ctrl_sig_t ctrl_signal;
+ 106   1        toggle_t prev_toggle_status = toggle_status;
+ 107   1        disp_t prev_display_mode_set = display_mode_set;
+ 108   1      
+ 109   1        uart_disable();
+ 110   1        // 控制信号 第1和第2位 
+ 111   1        dispatched_signal = (recieved_signal & 0x03);
+ 112   1        ctrl_signal = (ctrl_sig_t)dispatched_signal;
+ 113   1        // 数据 第3、4、5、6位
+ 114   1        dispatched_signal = (recieved_signal & 0x3C) >> 2;
+ 115   1      
+ 116   1        if (ctrl_signal == switch_on_off) {
+ 117   2          // recieved toggle status is 0x01(OFF) OR 0x02(ON) 
+C51 COMPILER V9.52.0.0   UART                                                              09/07/2015 15:57:18 PAGE 3   
+
+ 118   2          if (check_toggle_status(dispatched_signal)) {
+ 119   3            toggle_status = dispatched_signal - 1;
+ 120   3            ctrl_toggle_status_response(prev_toggle_status);
+ 121   3          }
+ 122   2          else if(dispatched_signal == 0x05)
+ 123   2          {
+ 124   3            display_mode_set = (disp_t)0;
+ 125   3            ctrl_display_mode_response(prev_display_mode_set);
+ 126   3          }
+ 127   2          else if(dispatched_signal == 0x0A)
+ 128   2          {
+ 129   3            display_mode_set = (disp_t)16;
+ 130   3            ctrl_display_mode_response(prev_display_mode_set);
+ 131   3          }
+ 132   2        } else if (ctrl_signal == switch_display_mode) {
+ 133   2          // Check
+ 134   2          if (check_display_mode_type(dispatched_signal)) {
+ 135   3            display_mode_set = (disp_t)dispatched_signal;
+ 136   3            ctrl_display_mode_response(prev_display_mode_set);
+ 137   3          }
+ 138   2        } else if (ctrl_signal == adjust_lumins_level) {
+ 139   2          // recieved lumins level start from 0x01
+ 140   2          if (check_lumins_level(dispatched_signal))
+ 141   2            lumins_level_set = dispatched_signal - 1;
+ 142   2            // lumins_level responsed each impluse dected
+ 143   2        } else if (ctrl_signal == adjust_speed_level) {
+ 144   2          // recieved speed level start from 0x01
+ 145   2          if (check_speed_level(dispatched_signal))
+ 146   2            speed_level = dispatched_signal - 1;
+ 147   2            // speed_level responsed each cycle(5ms)
+ 148   2      
+ 149   2        } else {
+ 150   2          // Error Ctrl & Do nothing
+ 151   2          _nop_();
+ 152   2        }
+ 153   1        uart_enable();
+ 154   1      }
+ 155          
+ 156          void 
+ 157          parse_crtl_signal_BLE( signal_t recieved_signal) {
+ 158   1        // local variable
+ 159   1        u8 dispatched_signal;
+ 160   1        ctrl_sig_t ctrl_signal;
+ 161   1        toggle_t prev_toggle_status = toggle_status;
+ 162   1        disp_t prev_display_mode_set = display_mode_set;
+ 163   1      
+ 164   1        //uart_disable();
+ 165   1        // 控制信号 第1和第2位 
+ 166   1        dispatched_signal = ((recieved_signal & 0xf0) >> 4) - 4;
+ 167   1        ctrl_signal = (ctrl_sig_t)dispatched_signal;
+ 168   1        // LOW 4 bit
+ 169   1        dispatched_signal = recieved_signal & 0x0f;
+ 170   1      
+ 171   1        if (ctrl_signal == switch_on_off) {
+ 172   2          // recieved toggle status is 0x01(OFF) OR 0x02(ON) 
+ 173   2          if (check_toggle_status(dispatched_signal)) {
+ 174   3            toggle_status = dispatched_signal - 1;
+ 175   3            ctrl_toggle_status_response(prev_toggle_status);
+ 176   3          }
+ 177   2          else if(dispatched_signal == 0x05)
+ 178   2          {
+ 179   3            display_mode_set = (disp_t)0;
+C51 COMPILER V9.52.0.0   UART                                                              09/07/2015 15:57:18 PAGE 4   
+
+ 180   3            ctrl_display_mode_response(prev_display_mode_set);
+ 181   3          }
+ 182   2          else if(dispatched_signal == 0x0A)
+ 183   2          {
+ 184   3            display_mode_set = (disp_t)16;
+ 185   3            ctrl_display_mode_response(prev_display_mode_set);
+ 186   3          }
+ 187   2        } else if (ctrl_signal == switch_display_mode) {
+ 188   2          // Check
+ 189   2          if (check_display_mode_type(dispatched_signal)) {
+ 190   3            display_mode_set = (disp_t)dispatched_signal;
+ 191   3            ctrl_display_mode_response(prev_display_mode_set);
+ 192   3          }
+ 193   2        } else if (ctrl_signal == adjust_lumins_level) {
+ 194   2          // recieved lumins level start from 0x01
+ 195   2          if (check_lumins_level(dispatched_signal))
+ 196   2            lumins_level_set = dispatched_signal - 1;
+ 197   2            // lumins_level responsed each impluse dected
+ 198   2        } else if (ctrl_signal == adjust_speed_level) {
+ 199   2          // recieved speed level start from 0x01
+ 200   2          if (check_speed_level(dispatched_signal))
+ 201   2            speed_level = dispatched_signal - 1;
+ 202   2            // speed_level responsed each cycle(5ms)
+ 203   2      
+ 204   2        } else {
+ 205   2          // Error Ctrl & Do nothing
+ 206   2          _nop_();
+ 207   2        }
+ 208   1        //uart_enable();
+ 209   1      }
+ 210          
+ 211          void parse_crtl_signal_from_BLE()
+ 212          {
+ 213   1        u8 iterator,received[2];
+ 214   1        for (iterator = 0; iterator < 2; ++iterator)
+ 215   1        {
+ 216   2              received[iterator] = RX1_Buffer[iterator];
+ 217   2          if(iterator == 1 && received[iterator] == '\n')
+ 218   2          {
+ 219   3            parse_crtl_signal_BLE(received[0]);
+ 220   3            break;
+ 221   3          }
+ 222   2        }
+ 223   1        uart_enable();
+ 224   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    544    ----
+   CONSTANT SIZE    =     15    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =      2       9
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =     64    ----
+   BIT SIZE         =      2       2
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

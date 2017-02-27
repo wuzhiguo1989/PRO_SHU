@@ -1,0 +1,12 @@
+C51 COMPILER V9.52.0.0   KEY                                                               10/22/2016 00:56:01 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE KEY
+OBJECT MODULE PLACED IN key.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE key.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+*** ERROR C318 OF key.c: can't open file 'key.c'
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  1 ERROR(S)

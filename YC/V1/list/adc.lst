@@ -1,0 +1,174 @@
+C51 COMPILER V9.52.0.0   ADC                                                               11/08/2016 20:29:06 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE ADC
+OBJECT MODULE PLACED IN .\list\adc.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE adc.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\adc.lst) TABS(2) OBJECT(.\list\a
+                    -dc.obj)
+
+line level    source
+
+   1          #include "adc.h"
+   2          #include "intrins.h"
+   3          #include "task.h"
+   4          
+   5          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+   6          #define adc_tem_around  2
+   7          #define adc_tem_fun     6
+   8          #define adc_phase_1     3
+   9          #define adc_phase_2     4
+  10          #define adc_phase_3     5
+  11          
+  12          
+  13          u8 tem_around = 0;
+  14          u8 tem_fan = 0;
+  15          
+  16          static void adc_io_init()
+  17          {
+  18   1        //P12
+  19   1        pure_input(1, 0x04);
+  20   1        //P13
+  21   1        pure_input(1, 0x08);
+  22   1        //P14
+  23   1        pure_input(1, 0x10);
+  24   1        //P15
+  25   1        pure_input(1, 0x20);
+  26   1        //P16
+  27   1        pure_input(1, 0x40);
+  28   1      }
+  29          
+  30          
+  31          void init_adc()
+  32          {
+  33   1        adc_io_init();
+  34   1        P1ASF |= 0x7C;
+  35   1        ADC_RES = 0;
+  36   1        ADC_RESL = 0;
+  37   1        ADC_CONTR = ADC_POWER | ADC_SPEED;
+  38   1      }
+  39          
+  40          
+  41          static u16 GetADCResult(u8 channel)
+  42          {
+  43   1        ADC_RES = 0;
+  44   1        ADC_RESL = 0;
+  45   1        // 选通道需要清除之前的通道
+  46   1        ADC_CONTR &= 0xF8;
+  47   1        ADC_CONTR |= channel;
+  48   1        ADC_CONTR |= ADC_START;
+  49   1        _nop_();                        
+  50   1        _nop_();
+  51   1        _nop_();
+  52   1        _nop_();
+  53   1        wait_adc_finish();              
+  54   1        ADC_CONTR &= ~ADC_FLAG;         
+C51 COMPILER V9.52.0.0   ADC                                                               11/08/2016 20:29:06 PAGE 2   
+
+  55   1        return ((ADC_RES << 2) | ADC_RESL);
+  56   1      }
+  57          
+  58          #define TEMPERATURE_ZERO_VALUE  30
+  59          #define TEMPERATURE_BOIL_VALUE  130
+  60          #define TEMPERATURE_NEGATIVE_BOIL_VALUE -70
+  61          
+  62          static u16 code temperature_table[91] =
+  63          {
+  64            17180, 16140, 15180, 14280, 13440, 12670, 11940, 11270, 10630, 10040, 9488,
+  65            8963, 8471, 8010, 7578, 7172, 6790, 6432, 6096, 5779, 5481, 5197,
+  66            4928, 4675, 4435, 4209, 3995, 3793, 3602, 3422, 3251, 3094, 2945, 
+  67            2804, 2670, 2543, 2422, 2370, 2199, 2095, 1997, 1904, 1816, 1732,  
+  68            1652, 1577, 1505, 1437, 1372, 1310, 1252, 1196, 1143, 1093, 1045,
+  69            1000, 957, 916, 877, 839, 804, 770, 738, 707, 678, 650,
+  70            624, 598, 574, 551, 529, 508, 488, 469, 451, 433, 417,
+  71            401, 386, 371, 357, 344, 331, 319, 307, 296, 285, 275,
+  72            265, 255, 246
+  73          };
+  74          
+  75          u8 temperature_cal(u8 adc_channel)
+  76          {
+  77   1        u8 i;
+  78   1        u8 temperature_value;
+  79   1        u16 temperature, adc_value = 0;
+  80   1        for(i = 0; i < 32; i++)
+  81   1          adc_value += GetADCResult(adc_channel);
+  82   1        adc_value = adc_value >> 5;
+  83   1        // 计算temperature
+  84   1        temperature = 20000000 / (10240000 / adc_value - 10000);
+  85   1        // 查找
+  86   1        for(i = 0; i < 91; i++)
+  87   1        {
+  88   2          if(temperature > temperature_table[0])
+  89   2          {
+  90   3            temperature = 0;
+  91   3            break;
+  92   3          }
+  93   2          else if(temperature < temperature_table[90])
+  94   2          {
+  95   3            temperature = 90;
+  96   3            break;
+  97   3          }
+  98   2          else if(temperature <= temperature_table[i] && temperature > temperature_table[i+1])
+  99   2          {
+ 100   3            temperature = i;
+ 101   3            break;
+ 102   3          }
+ 103   2        }
+ 104   1        if(temperature < TEMPERATURE_ZERO_VALUE)
+ 105   1          temperature_value = TEMPERATURE_ZERO_VALUE - temperature;
+ 106   1        else
+ 107   1          temperature_value = temperature - TEMPERATURE_ZERO_VALUE;
+ 108   1        return temperature_value;
+ 109   1      }
+ 110          
+ 111          u8 temperature_around_cal()
+ 112          {
+ 113   1          return temperature_cal(adc_tem_around);
+ 114   1      }
+ 115          
+ 116          u8 temperature_fan_cal()
+C51 COMPILER V9.52.0.0   ADC                                                               11/08/2016 20:29:06 PAGE 3   
+
+ 117          {
+ 118   1          return temperature_cal(adc_tem_fun);
+ 119   1      }
+ 120          
+ 121          
+ 122          // todo
+ 123          bool overload_detected()
+ 124          {
+ 125   1        u8 i;
+ 126   1        u16 adc_value = 0;
+ 127   1        for(i = 0; i < 16; i++)
+ 128   1          adc_value += GetADCResult(adc_phase_1);
+ 129   1        adc_value = adc_value >> 4;
+ 130   1      
+ 131   1        adc_value = 0;
+ 132   1        for(i = 0; i < 16; i++)
+ 133   1          adc_value += GetADCResult(adc_phase_2);
+ 134   1        adc_value = adc_value >> 4;
+ 135   1      
+ 136   1        adc_value = 0;
+ 137   1        for(i = 0; i < 16; i++)
+ 138   1          adc_value += GetADCResult(adc_phase_3);
+ 139   1        adc_value = adc_value >> 4;
+ 140   1      
+ 141   1        return 1;
+ 142   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    384    ----
+   CONSTANT SIZE    =    182    ----
+   XDATA SIZE       =      2       3
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

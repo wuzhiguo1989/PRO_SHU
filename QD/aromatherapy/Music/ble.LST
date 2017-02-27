@@ -1,0 +1,167 @@
+C51 COMPILER V9.52.0.0   BLE                                                               03/03/2016 15:49:50 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE BLE
+OBJECT MODULE PLACED IN ble.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE ble.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "ble.h"
+   2          #include "string.h"
+   3          #include "usart.h"
+   4          #include "task.h"
+   5          #include "config.h"
+   6          #include "stdio.h"
+   7          #include "sync.h"
+   8          #include "utils.h"
+   9          #include "key.h"
+  10          #include "power.h"
+  11          #include "music.h"
+  12          #include "display.h"
+  13          
+  14          
+  15          #define ble_send_command(x)   PrintString1(x)
+  16          #define ble_recieve_data(x)   GetString1(x)
+  17          static volatile u8 xdata TX1_Buffer[COM_TX1_Lenth];    //发送缓冲
+  18          static volatile u8 xdata RX1_Buffer[COM_RX1_Lenth];    //接收缓冲
+  19          
+  20          void TX1_write2buff(const u8 dat) 
+  21          {
+  22   1          TX1_Buffer[COM1.TX_write] = dat;        // 装发送缓冲
+  23   1          if(++COM1.TX_write >= COM_TX1_Lenth)    
+  24   1              COM1.TX_write = 0;
+  25   1      
+  26   1          if(COM1.B_TX_busy == 0)                 // 空闲
+  27   1          {  
+  28   2              COM1.B_TX_busy = 1;                 // 标志忙
+  29   2              TI = 1;                             // 触发发送中断
+  30   2          }
+  31   1      }
+  32          
+  33          
+  34          
+  35          static void GetString1(u8 *received) {
+  36   1          if (COM1.RX_Cnt) 
+  37   1              memcpy(received, RX1_Buffer, COM1.RX_Cnt);
+  38   1          received[COM1.RX_Cnt] = '\0';
+  39   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+  40   1          COM1.RX_Cnt = 0;
+  41   1          COM1.B_RX_OK = FALSE;
+  42   1      }
+  43          
+  44          static void PrintString1(u8 *puts)
+  45          {
+  46   1          for (; *puts != 0;  puts++)  TX1_write2buff(*puts);     //遇到停止符0结束
+  47   1      }
+  48          
+  49          void BLE_Init() {
+  50   1      
+  51   1          memset(TX1_Buffer, 0, COM_TX1_Lenth);
+  52   1          memset(RX1_Buffer, 0, COM_RX1_Lenth);
+  53   1          USART_Init(&COM1);
+  54   1      
+  55   1          S1_8bit();
+C51 COMPILER V9.52.0.0   BLE                                                               03/03/2016 15:49:50 PAGE 2   
+
+  56   1          S1_BRT_UseTimer2();     // S1 BRT Use Timer2;
+  57   1      
+  58   1          S1_Int_Enable();        // 允许中断
+  59   1      
+  60   1          S1_RX_Enable();         // Rx 接收允许
+  61   1          S1_USE_P36P37();
+  62   1          quasi_bidirectional(BLE_TX_Mx, BLE_TX_BIT);
+  63   1          quasi_bidirectional(BLE_RX_Mx, BLE_RX_BIT);
+  64   1      
+  65   1          S1_TXD_RXD_OPEN();
+  66   1      
+  67   1          USART_Share_Timer2();
+  68   1      }
+  69          
+  70          #define GP228_CMD_SIZE   4
+  71          
+  72          static void uart_dispatch_gp228_cmd(const char xdata *cmd) {
+  73   1          // GP228+MS=<1-4>  香薰功率
+  74   1          // GP228+MT=<0,1>  0 香薰关闭 1香薰打开
+  75   1          // GP228+SS=<1-8>  8首歌
+  76   1          // GP228+SV=<0-15> 16级音量
+  77   1          // GP228+ST=<0,1>  0 音乐关闭 1音乐打开
+  78   1          // GP228+LS=<R...G...B...>
+  79   1          // GP228+LT=<0,1>  灯光打开、关闭
+  80   1          if (memcmp(cmd, "+MS=", GP228_CMD_SIZE) == 0) {
+  81   2                  power_select_level(cmd[4] - '0');
+  82   2          } else if (memcmp(cmd, "+MT=", GP228_CMD_SIZE) == 0) {
+  83   2                  power_switch_on_off(cmd[4] - '0');
+  84   2          } else if (memcmp(cmd, "+SS=", GP228_CMD_SIZE) == 0){
+  85   2                  music_select_songs(cmd[4] - '0');
+  86   2          } else if (memcmp(cmd, "+SV=", GP228_CMD_SIZE) == 0) {
+  87   2                  music_select_volume(cmd);
+  88   2          } else if (memcmp(cmd, "+ST=", GP228_CMD_SIZE) == 0) {
+  89   2                  music_switch_on_off(cmd[4] - '0');
+  90   2          } else if (memcmp(cmd, "+LS=", GP228_CMD_SIZE) == 0) {
+  91   2                  led_syc_color(cmd);
+  92   2          } else if (memcmp(cmd, "+LT=", GP228_CMD_SIZE) == 0) {
+  93   2                  led_switch_on_off(cmd[4] - '0');
+  94   2          } 
+  95   1       }
+  96          
+  97          void uart_process_recieved() {
+  98   1          char xdata *gp228_param;
+  99   1          char received[COM_RX1_Lenth];
+ 100   1          ble_recieve_data(received);
+ 101   1          gp228_param = strchr(received, '+');
+ 102   1          if (gp228_param) {
+ 103   2              uart_dispatch_gp228_cmd(gp228_param);
+ 104   2          }
+ 105   1      }
+ 106          
+ 107          // Handle usart trigger: receiving "\r\n"
+ 108          void UART1_int (void) interrupt UART1_VECTOR
+ 109          {
+ 110   1          if(RI)
+ 111   1          {
+ 112   2              RI = 0;
+ 113   2      
+ 114   2              if(COM1.B_RX_OK == 0)
+ 115   2              {
+ 116   3                  if (COM1.RX_Cnt >= COM_RX1_Lenth)
+ 117   3                      COM1.RX_Cnt = 0;
+C51 COMPILER V9.52.0.0   BLE                                                               03/03/2016 15:49:50 PAGE 3   
+
+ 118   3                  RX1_Buffer[COM1.RX_Cnt++] = SBUF;
+ 119   3                  COM1.RX_TimeOut = TimeOutSet1;
+ 120   3              }
+ 121   2      
+ 122   2          }
+ 123   1      
+ 124   1          if(TI)
+ 125   1          {
+ 126   2              TI = 0;
+ 127   2              if(COM1.TX_read != COM1.TX_write)
+ 128   2              {
+ 129   3                  SBUF = TX1_Buffer[COM1.TX_read];
+ 130   3                  if(++COM1.TX_read >= COM_TX1_Lenth)     
+ 131   3                      COM1.TX_read = 0;
+ 132   3              }
+ 133   2              else    
+ 134   2                  COM1.B_TX_busy = 0;
+ 135   2          }
+ 136   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    740    ----
+   CONSTANT SIZE    =     35    ----
+   XDATA SIZE       =     96      37
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

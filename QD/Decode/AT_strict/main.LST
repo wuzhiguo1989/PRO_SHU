@@ -1,0 +1,474 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE main.c ROM(COMPACT) BROWSE DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "intrins.h"
+   2          #include "stc15wxxxx.h"
+   3          #include "bk8000l.h"
+   4          #include "string.h"
+   5          //-----------------------------------------------
+   6          
+   7          #define BAUD    9600
+   8          #define FOSC    24000000L
+   9          #define T0INT   (65536-FOSC/4000)             // 8000次采样 / 秒
+  10          #define T2INT   (65536 - (FOSC/4/BAUD))       // 
+  11          
+  12          #define ENABLE          1
+  13          #define DISABLE         0
+  14          #define YES             1
+  15          #define NO              0
+  16          #define false 0
+  17          #define true 1
+  18          
+  19          #define SAMP_PER_MS                     4
+  20          #define SIG_LENGTH                      7
+  21          #define SIG_WIDTH                       6
+  22          #define LM567_STAT                      P33
+  23          #define IO_CODE                         0x08    // P3.3
+  24          
+  25          
+  26          #define high_at_bit(r, bit)     r |= bit
+  27          #define low_at_bit(r, bit)      r &= ~bit
+  28          
+  29          #define set_quasi_bidirectional_on3(pin)        low_at_bit(P3M1, pin); low_at_bit(P3M0, pin)
+  30          #define set_push_pull_output_on3(pin)           low_at_bit(P3M1, pin); high_at_bit(P3M0, pin)
+  31          #define set_input_only_on3(pin)                 high_at_bit(P3M1, pin); low_at_bit(P3M0, pin)
+  32          #define set_open_drain_on3(pin)                 high_at_bit(P3M1, pin); high_at_bit(P3M0, pin)
+  33          #define push_back(ori, x) ori <<= 1; if(x) ++ori;
+  34          
+  35          #define abort_recieving() candidate_signal_recieving = NO;
+  36          #define quick_validate_signal(x)  ((x & 0x01) && (x & 0x40))
+  37          #define effective_signal(x) ((x & 0x3E) >> 1)
+  38          
+  39          void init_signal_decoder(void);
+  40          void signal_buffer_process(void);
+  41          void start_check_candidate_tail();
+  42          
+  43          static volatile bit LM567_DUTY = 0;
+  44          static volatile bit candidate_signal_recieving = NO;
+  45          
+  46          volatile u8 signal_ms_counter = SAMP_PER_MS;
+  47          volatile u8 signal_bit_counter = SIG_WIDTH;
+  48          volatile u8 signal_length_counter = SIG_LENGTH;
+  49          volatile u8 io_status_per_ms = 0;
+  50          volatile u16 io_status_per_bit = 0;
+  51          volatile u8 signal_raw_data = 0;
+  52          
+  53          volatile u8 fall_counter_while_bit = 0;
+  54          volatile u8 fall_counter_whole = 0;
+  55          volatile u8 rise_counter_in_tail = 0;
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 2   
+
+  56          volatile u8 high_counter_in_tail = 0;
+  57          
+  58          volatile bool fall_counter_bit_take_account = false;
+  59          volatile bool candidate_signal_tail_check = false;
+  60          
+  61          u8 command_counter = 0;
+  62          bit TIME_DUTY = 0;
+  63          bit MODE_DUTY = 0;
+  64          bit LIMUS_DUTY = 0;
+  65          bit COLOR_DUTY = 0;
+  66          bit ALARM1_DUTY = 0;
+  67          bit ALARM2_DUTY = 0;
+  68          u8 syc_data_raw[15];
+  69          
+  70          
+  71          void InitTimer0()
+  72          {
+  73   1          TMOD = 0x00;                    // 低两位 = 0 —— 模式0(16位自动重装载)
+  74   1          AUXR |= 0x80;                   // 定时器0的速度是传统单片机的12倍（1T）
+  75   1          TL0 = T0INT;                    // 初始化计时值
+  76   1          TH0 = T0INT >> 8;
+  77   1          TR0 = 1;                        // 定时器0开始计时
+  78   1          ET0 = 1;                        // 使能定时器0中断
+  79   1      }
+  80          
+  81          static void init_recieving() {
+  82   1        signal_ms_counter = SAMP_PER_MS;
+  83   1        signal_bit_counter = SIG_WIDTH;
+  84   1        signal_length_counter = SIG_LENGTH;
+  85   1        io_status_per_ms = 0;
+  86   1        io_status_per_bit = 0;
+  87   1        signal_raw_data = 0;
+  88   1      
+  89   1        fall_counter_while_bit = 0;
+  90   1        fall_counter_whole = 0;
+  91   1        rise_counter_in_tail = 0;
+  92   1        high_counter_in_tail = 0;
+  93   1      
+  94   1        candidate_signal_recieving = YES;
+  95   1        candidate_signal_tail_check = false;
+  96   1        fall_counter_bit_take_account = false;
+  97   1      }
+  98          
+  99          void init_signal_decoder(void) {
+ 100   1          IT1 = 0;                      //  设置INT1的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+ 101   1          PX1 = 1;
+ 102   1          EX1 = ENABLE;                  
+ 103   1      }
+ 104          
+ 105          void start_check_candidate_tail() {
+ 106   1        candidate_signal_recieving = NO;
+ 107   1        candidate_signal_tail_check = true;
+ 108   1      }
+ 109          
+ 110          void signal_buffer_process(void) {
+ 111   1        candidate_signal_tail_check = false;
+ 112   1      
+ 113   1        if (rise_counter_in_tail < 2 && high_counter_in_tail < 2) {
+ 114   2          LM567_DUTY = 1;
+ 115   2          EX1 = DISABLE;
+ 116   2        }
+ 117   1      }
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 3   
+
+ 118          
+ 119          void parse_crtl_signal(u8 receive_data)
+ 120          {
+ 121   1          if(receive_data == 16 && !command_counter)
+ 122   1          {
+ 123   2             TIME_DUTY = 1;
+ 124   2             memset(syc_data_raw, 0, 15);
+ 125   2             syc_data_raw[command_counter] = receive_data;
+ 126   2             command_counter ++;
+ 127   2          }
+ 128   1          else if(receive_data == 17 && command_counter == 3)
+ 129   1          {
+ 130   2             TIME_DUTY = 1;
+ 131   2             command_counter ++;
+ 132   2          }
+ 133   1          else if(receive_data == 18 && command_counter == 6)
+ 134   1          {
+ 135   2              TIME_DUTY = 1;
+ 136   2              command_counter ++;
+ 137   2          }
+ 138   1          else if(receive_data == 19 && command_counter == 9)
+ 139   1          {
+ 140   2              TIME_DUTY = 1;
+ 141   2              command_counter ++;
+ 142   2          }
+ 143   1          else if(receive_data == 20 && command_counter == 12)
+ 144   1          {
+ 145   2              TIME_DUTY = 1;
+ 146   2              command_counter ++;
+ 147   2          }
+ 148   1          else if(receive_data == 21 && !command_counter)
+ 149   1          {
+ 150   2               MODE_DUTY = 1;
+ 151   2               memset(syc_data_raw, 0, 15);
+ 152   2               syc_data_raw[command_counter] = receive_data;
+ 153   2               command_counter ++;
+ 154   2          }
+ 155   1          else if(receive_data == 22 && !command_counter)
+ 156   1          {
+ 157   2               LIMUS_DUTY = 1;
+ 158   2               memset(syc_data_raw, 0, 15);
+ 159   2               syc_data_raw[command_counter] = receive_data;
+ 160   2               command_counter ++;
+ 161   2          }
+ 162   1          else if(receive_data == 23 && !command_counter)
+ 163   1          {
+ 164   2                COLOR_DUTY = 1;
+ 165   2                memset(syc_data_raw, 0, 15);
+ 166   2                syc_data_raw[command_counter] = receive_data;
+ 167   2                command_counter ++;
+ 168   2          }
+ 169   1          else if(receive_data == 24 && command_counter == 3)
+ 170   1          {
+ 171   2                COLOR_DUTY = 1;
+ 172   2                command_counter ++;
+ 173   2          }
+ 174   1          else if(receive_data == 25 && command_counter == 6)
+ 175   1          {
+ 176   2                COLOR_DUTY = 1;
+ 177   2                command_counter ++;
+ 178   2          }
+ 179   1          else if(receive_data == 26 && !command_counter)
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 4   
+
+ 180   1          {
+ 181   2                ALARM1_DUTY = 1;
+ 182   2                memset(syc_data_raw, 0, 15);
+ 183   2                syc_data_raw[command_counter] = receive_data;
+ 184   2                command_counter ++;
+ 185   2          }
+ 186   1          else if(receive_data == 27 && command_counter == 3)
+ 187   1          {
+ 188   2                ALARM1_DUTY = 1;
+ 189   2                command_counter ++;
+ 190   2          }
+ 191   1          else if(receive_data == 28 && !command_counter)
+ 192   1          {
+ 193   2                ALARM2_DUTY = 1;
+ 194   2                memset(syc_data_raw, 0, 15);
+ 195   2                syc_data_raw[command_counter] = receive_data;
+ 196   2                command_counter ++;
+ 197   2          }
+ 198   1          else if(receive_data == 29 && command_counter == 3)
+ 199   1          {
+ 200   2                ALARM2_DUTY = 1;
+ 201   2                command_counter ++;
+ 202   2          }
+ 203   1          else if((receive_data >= 0 && receive_data <= 15)  && (command_counter % 3))
+ 204   1          {
+ 205   2                if(TIME_DUTY)
+ 206   2                {
+ 207   3                   syc_data_raw[command_counter] = receive_data;
+ 208   3                   command_counter ++;
+ 209   3                   if(!(command_counter % 3))
+ 210   3                       TIME_DUTY = 0;
+ 211   3                    if(command_counter == 15)
+ 212   3                    {
+ 213   4                        Bk8000l_Sync_Time(syc_data_raw[1] << 4 | syc_data_raw[2], 
+ 214   4                                          syc_data_raw[4] << 4 | syc_data_raw[5], 
+ 215   4                                          syc_data_raw[7] << 4 | syc_data_raw[8], 
+ 216   4                                          syc_data_raw[10] << 4 | syc_data_raw[11], 
+ 217   4                                          syc_data_raw[13] << 4 | syc_data_raw[14]);
+ 218   4                        command_counter = 0;
+ 219   4                    }
+ 220   3                 }
+ 221   2                 if(MODE_DUTY)
+ 222   2                 {
+ 223   3                     syc_data_raw[command_counter] = receive_data;
+ 224   3                     command_counter ++;
+ 225   3                     if(command_counter == 2)
+ 226   3                     {
+ 227   4                        Bk8000l_Change_DisplayMode(syc_data_raw[1]);
+ 228   4                        command_counter = 0;
+ 229   4                        MODE_DUTY = 0;
+ 230   4                     }
+ 231   3                 }
+ 232   2                 if(LIMUS_DUTY)
+ 233   2                 {
+ 234   3                      syc_data_raw[command_counter] = receive_data;
+ 235   3                      command_counter ++;
+ 236   3                      if(command_counter == 2)
+ 237   3                      {
+ 238   4                           Bk8000l_Change_DisplayLimus(syc_data_raw[1]);
+ 239   4                           command_counter = 0;
+ 240   4                           LIMUS_DUTY = 0;
+ 241   4                      }
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 5   
+
+ 242   3                  }
+ 243   2                  if(COLOR_DUTY)
+ 244   2                  {
+ 245   3                      syc_data_raw[command_counter] = receive_data;
+ 246   3                      command_counter ++;
+ 247   3                      if(!(command_counter % 3))
+ 248   3                          COLOR_DUTY = 0;
+ 249   3                      if(command_counter == 9)
+ 250   3                      {
+ 251   4                          Bk8000l_Sync_Color(syc_data_raw[1] << 4 | syc_data_raw[2], 
+ 252   4                                          syc_data_raw[4] << 4 | syc_data_raw[5], 
+ 253   4                                          syc_data_raw[7] << 4 | syc_data_raw[8]);
+ 254   4                          command_counter = 0;
+ 255   4                      }
+ 256   3                  }
+ 257   2                  if(ALARM1_DUTY)
+ 258   2                  {
+ 259   3                      syc_data_raw[command_counter] = receive_data;
+ 260   3                      command_counter ++;
+ 261   3                      if(!(command_counter % 3))
+ 262   3                          ALARM1_DUTY = 0;
+ 263   3                      if(command_counter == 6)
+ 264   3                      {
+ 265   4                          Bk8000l_Sync_ALARM1(syc_data_raw[1] << 4 | syc_data_raw[2], 
+ 266   4                                          syc_data_raw[4] << 4 | syc_data_raw[5]);
+ 267   4                          command_counter = 0;
+ 268   4                      }
+ 269   3                  }
+ 270   2                  if(ALARM2_DUTY)
+ 271   2                  {
+ 272   3                      syc_data_raw[command_counter] = receive_data;
+ 273   3                      command_counter ++;
+ 274   3                      if(!(command_counter % 3))
+ 275   3                          ALARM2_DUTY = 0;
+ 276   3                      if(command_counter == 6)
+ 277   3                      {
+ 278   4                          Bk8000l_Sync_ALARM2(syc_data_raw[1] << 4 | syc_data_raw[2], 
+ 279   4                                          syc_data_raw[4] << 4 | syc_data_raw[5]);
+ 280   4                          command_counter = 0;
+ 281   4      
+ 282   4                      }
+ 283   3                  }
+ 284   2            }
+ 285   1           else
+ 286   1           {
+ 287   2                 command_counter = 0;
+ 288   2                 TIME_DUTY = 0;
+ 289   2                 MODE_DUTY = 0;
+ 290   2                 LIMUS_DUTY = 0;
+ 291   2                 COLOR_DUTY = 0;
+ 292   2                 ALARM1_DUTY = 0;
+ 293   2                 ALARM2_DUTY = 0;
+ 294   2      
+ 295   2           }
+ 296   1      
+ 297   1      }
+ 298          
+ 299          void main()
+ 300          {
+ 301   1          set_input_only_on3(IO_CODE);
+ 302   1          InitTimer0();
+ 303   1          init_signal_decoder();
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 6   
+
+ 304   1          Bk8000l_Init();
+ 305   1          EA = 1;
+ 306   1          while(1) 
+ 307   1          {
+ 308   2            // io status sampling finished
+ 309   2            if (LM567_DUTY) 
+ 310   2            {
+ 311   3              u8 signal_raw;
+ 312   3              u8 signal_raw_search_index = 0, signal_raw_fall_counter = 2;
+ 313   3              if(quick_validate_signal(signal_raw_data)) {
+ 314   4                while (signal_raw_search_index < 7) {
+ 315   5                  if ((signal_raw_data & (0x03 << signal_raw_search_index)) == (0x02 << signal_raw_search_index)
+             -)
+ 316   5                  {
+ 317   6                    ++signal_raw_search_index;
+ 318   6                    ++signal_raw_fall_counter;
+ 319   6                  }
+ 320   5                  ++signal_raw_search_index;
+ 321   5                }
+ 322   4      
+ 323   4                if (fall_counter_whole < signal_raw_fall_counter) {
+ 324   5                  signal_raw = effective_signal(signal_raw_data);
+ 325   5                  parse_crtl_signal(signal_raw);
+ 326   5                }
+ 327   4            }
+ 328   3            LM567_DUTY = 0;
+ 329   3            EX1 = ENABLE;
+ 330   3            continue;
+ 331   3          }
+ 332   2        }
+ 333   1      }
+ 334          
+ 335          // LM567 caught one candidate signal
+ 336          void exint1_isr() interrupt 2 using 2 
+ 337          {
+ 338   1        // Check INT is RISE
+ 339   1        if (LM567_STAT && !candidate_signal_recieving && !candidate_signal_tail_check) {
+ 340   2          // begin to sampling from P33
+ 341   2          init_recieving();
+ 342   2        }
+ 343   1      
+ 344   1        if (LM567_STAT && candidate_signal_tail_check)
+ 345   1          ++rise_counter_in_tail;
+ 346   1      
+ 347   1        if (!LM567_STAT && candidate_signal_recieving) {
+ 348   2          if (fall_counter_bit_take_account)
+ 349   2            ++fall_counter_while_bit;
+ 350   2      
+ 351   2          ++fall_counter_whole;
+ 352   2        }
+ 353   1      }
+ 354          
+ 355          static u8 io_status_per_ms_checker = 0;
+ 356          static u8 io_status_rf_per_ms = 0;
+ 357          void tm0_isr() interrupt 1 using 1
+ 358          {
+ 359   1      
+ 360   1        if (candidate_signal_tail_check) {
+ 361   2          --signal_ms_counter;
+ 362   2          if (LM567_STAT && signal_bit_counter < 5)
+ 363   2            ++high_counter_in_tail;
+ 364   2          
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 7   
+
+ 365   2          if (!signal_ms_counter) {           // 1ms
+ 366   3            signal_ms_counter = SAMP_PER_MS;
+ 367   3            --signal_bit_counter;
+ 368   3            if (!signal_bit_counter) {          // 6ms / 1bit finish
+ 369   4              signal_bit_counter = SIG_WIDTH;
+ 370   4              signal_buffer_process();
+ 371   4            }
+ 372   3          }
+ 373   2        }
+ 374   1      
+ 375   1        // 4kHz new tick-tock
+ 376   1        if (candidate_signal_recieving) {
+ 377   2          --signal_ms_counter;
+ 378   2      
+ 379   2          push_back(io_status_per_ms, LM567_STAT);
+ 380   2          if (!signal_ms_counter) {
+ 381   3            // 1ms finish
+ 382   3            signal_ms_counter = SAMP_PER_MS;
+ 383   3            --signal_bit_counter;
+ 384   3      
+ 385   3            // ------------- check four io status in one ms ----------------
+ 386   3            io_status_per_ms_checker = io_status_per_ms << 1;
+ 387   3            io_status_per_ms_checker ^= io_status_per_ms;
+ 388   3      
+ 389   3            io_status_rf_per_ms = 0;
+ 390   3            if (io_status_per_ms_checker & 0x02)
+ 391   3              ++io_status_rf_per_ms;
+ 392   3            if (io_status_per_ms_checker & 0x04)
+ 393   3              ++io_status_rf_per_ms;
+ 394   3            if (io_status_per_ms_checker & 0x08)
+ 395   3              ++io_status_rf_per_ms;
+ 396   3            if (io_status_per_ms_checker & 0x10)
+ 397   3              ++io_status_rf_per_ms;
+ 398   3      
+ 399   3            if (io_status_rf_per_ms > 2)
+ 400   3              abort_recieving();
+ 401   3      
+ 402   3            // ------------- check four io status in one ms ----------------
+ 403   3      
+ 404   3            if (signal_bit_counter == 4) {
+ 405   4              fall_counter_bit_take_account = true;
+ 406   4              fall_counter_while_bit = 0;
+ 407   4            }
+ 408   3            if (signal_bit_counter == 2) {
+ 409   4              fall_counter_bit_take_account = false;
+ 410   4            }
+ 411   3      
+ 412   3            push_back(io_status_per_bit, io_status_per_ms);
+ 413   3            io_status_per_ms = 0;
+ 414   3            if (!signal_bit_counter) {
+ 415   4              // 6ms / 1bit finish
+ 416   4              signal_bit_counter = SIG_WIDTH;
+ 417   4              --signal_length_counter;
+ 418   4      
+ 419   4              io_status_per_bit &= 0x0C;
+ 420   4              if (io_status_per_bit && io_status_per_bit != 0x0C && fall_counter_while_bit) {
+ 421   5                abort_recieving();
+ 422   5              }
+ 423   4      
+ 424   4              push_back(signal_raw_data, io_status_per_bit);
+ 425   4              io_status_per_bit = 0;
+ 426   4              if (!signal_length_counter) {
+C51 COMPILER V9.52.0.0   MAIN                                                              10/31/2015 19:50:58 PAGE 8   
+
+ 427   5                // 8bit finish
+ 428   5                start_check_candidate_tail();
+ 429   5              }
+ 430   4            }
+ 431   3          }
+ 432   2        }   
+ 433   1      
+ 434   1      }
+ 435          
+ 436          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1024    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     29       4
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =     10    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

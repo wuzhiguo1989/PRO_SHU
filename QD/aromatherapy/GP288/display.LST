@@ -1,0 +1,1979 @@
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE DISPLAY
+OBJECT MODULE PLACED IN display.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE display.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "display.h"
+   2          #include "sync.h"
+   3          #include "utils.h"
+   4          #include "string.h"
+   5          #include "led.h"
+   6          #include "lm567.h"
+   7          
+   8          volatile disp_t led_mode_set = 0;
+   9          volatile disp_t led_mode_logic = 0;
+  10          volatile speed_level_t speed = 9, led_logic_speed = 9;
+  11          volatile led_t xdata led_config_set[19], led_config_logic[19];
+  12          volatile toggle_t led_toggle_status = ON;
+  13          
+  14          // -------------------- display config declaring -------------------------
+  15          // Cycle are calculated based on 5ms timer
+  16          static code u16 const cycle_for_led_display_off[16];
+  17          static code u16 const cycle_for_moonlight[16];
+  18          static code u16 const cycle_for_fire_work[16] = {
+  19            160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10
+  20          };
+  21          static code u16 const cycle_for_hot_wheels[16] = {
+  22            160, 150, 140, 130, 120, 110, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10
+  23          };
+  24          static code u16 const cycle_for_rainbow_chasing[16] = {
+  25            320, 300, 280, 260, 240, 220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20
+  26          };
+  27          static code u16 const cycle_for_color_chasing_7[16] = {
+  28            320, 300, 280, 260, 240, 220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20
+  29          };
+  30          static code u16 const cycle_for_color_breathe_3[16] = {
+  31            32, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2
+  32          };
+  33          static code u16 const cycle_for_color_breathe_7[16] ={
+  34            32, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2
+  35          };
+  36          static code u16 const cycle_for_white_breathe[16] ={
+  37            32, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2
+  38          };
+  39          static code u16 const cycle_for_combination[16] ={
+  40            320, 300, 280, 260, 240, 220, 200, 180, 160, 140, 120, 100, 80, 60, 40, 20
+  41          };
+  42          static code u16 const cycle_for_music_sensor[16] = {
+  43            30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30
+  44          };
+  45          
+  46          
+  47          // ------------------------- marco functions -------------------------
+  48          
+  49          
+  50          
+  51          // #define sync_up_toggle_stat()  toggle_stat_last_for_sensor_prevent_inst_blink = toggle_status
+  52          
+  53          // #define LED_MODE_LOGIC_CHG 0
+  54          // #define LED_MODE_SET_CHG 1
+  55          
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 2   
+
+  56          // ------------------------- private declaring -------------------------
+  57          static void reload_pwm_config_if_should();
+  58          static void load_pwm_off_config();
+  59          static void prepare_next_time_led_config();
+  60          static void led_cycle_based_adjust();
+  61          static void half_cycle_reached();
+  62          
+  63          
+  64          // ------------------------- display_mode_init declaring -------------------------
+  65          static void led_display_off_driver_init();
+  66          static void moon_light_driver_init();
+  67          static void fire_work_driver_init();
+  68          static void hot_wheels_driver_init();
+  69          static void rainbow_chasing_driver_init();
+  70          static void color_chasing_7_driver_init();
+  71          static void color_breathe_3_driver_init();
+  72          static void color_breathe_7_driver_init();
+  73          static void white_breathe_driver_init();
+  74          static void combination_driver_init();
+  75          static void music_sensor_driver_init();
+  76          
+  77          // ------------------------- display_mode_driver declaring -------------------------
+  78          static void led_display_off_driver();
+  79          static void moon_light_driver();
+  80          static void fire_work_driver();
+  81          static void hot_wheels_driver();
+  82          static void rainbow_chasing_driver();
+  83          static void color_chasing_7_driver();
+  84          static void color_breathe_3_driver();
+  85          static void color_breathe_7_driver();
+  86          static void white_breathe_driver();
+  87          static void combination_driver();
+  88          static void music_sensor_driver();
+  89          // ------------------------- half_cycle_reached declaring -------------------------
+  90          
+  91          static void led_display_off_half_cycle_reached();
+  92          static void moon_light_half_cycle_reached();
+  93          static void fire_work_half_cycle_reached();
+  94          static void hot_wheels_half_cycle_reached();
+  95          static void rainbow_chasing_half_cycle_reached();
+  96          static void color_chasing_7_half_cycle_reached();
+  97          static void color_breathe_3_cycle_reached();
+  98          static void color_breathe_7_half_cycle_reached();
+  99          static void white_breathe_half_cycle_reached();
+ 100          static void combination_half_cycle_reached();
+ 101          static void music_sensor_half_cycle_reached();
+ 102          
+ 103          static code const u16 *cycle_params[11] =
+ 104          {
+ 105            NULL,             // led_display_off
+ 106            NULL,           // moon_light
+ 107            cycle_for_fire_work,          // fire_work
+ 108            cycle_for_hot_wheels,           // hot_wheels
+ 109            cycle_for_rainbow_chasing,            // rainbow_chasing
+ 110            cycle_for_color_chasing_7,          // color_chasing_7
+ 111            cycle_for_color_breathe_3,            // color_breathe_3
+ 112            cycle_for_color_breathe_7,            // color_breathe_7
+ 113            cycle_for_white_breathe,            // white_breathe
+ 114            cycle_for_combination,            // combination
+ 115            cycle_for_music_sensor                        // music_sensor
+ 116          };
+ 117          
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 3   
+
+ 118          // idata *display_driver -> detailed display_driver
+ 119          static code driver_init_pt const driver_init[11] =
+ 120          {
+ 121            led_display_off_driver_init,            // led_display_off
+ 122            moon_light_driver_init,           // moon_light
+ 123            fire_work_driver_init,          // fire_work
+ 124            hot_wheels_driver_init,           // hot_wheels
+ 125            rainbow_chasing_driver_init,            // rainbow_chasing
+ 126            color_chasing_7_driver_init,          // color_chasing_7
+ 127            color_breathe_3_driver_init,            // color_breathe_3
+ 128            color_breathe_7_driver_init,            // color_breathe_7
+ 129            white_breathe_driver_init,            // white_breathe
+ 130            combination_driver_init,            // combination
+ 131            music_sensor_driver_init            // music_sensor
+ 132          };
+ 133          
+ 134          
+ 135          static code half_cycle_reached_pt const display_driver[11] = 
+ 136          {
+ 137            led_display_off_driver,             // led_display_off
+ 138            moon_light_driver,            // moon_light
+ 139            fire_work_driver,           // fire_work
+ 140            hot_wheels_driver,            // hot_wheels
+ 141            rainbow_chasing_driver,             // rainbow_chasing
+ 142            color_chasing_7_driver,         // color_chasing_7
+ 143            color_breathe_3_driver,             // color_breathe_3
+ 144            color_breathe_7_driver,           // color_breathe_7
+ 145            white_breathe_driver,             // white_breathe
+ 146            combination_driver,           // combination
+ 147            music_sensor_driver             // music_sensor
+ 148          };
+ 149          
+ 150          static code display_driver_pt const half_cycle_callback[11] = 
+ 151          {
+ 152            led_display_off_half_cycle_reached,   // led_display_off
+ 153            moon_light_half_cycle_reached,      // moon_light
+ 154            fire_work_half_cycle_reached,       // fire_work
+ 155            hot_wheels_half_cycle_reached,      // hot_wheels
+ 156            rainbow_chasing_half_cycle_reached,   // rainbow_chasing
+ 157            color_chasing_7_half_cycle_reached,   // color_chasing_7
+ 158            color_breathe_3_cycle_reached,      // color_breathe_3
+ 159            color_breathe_7_half_cycle_reached,   // color_breathe_7
+ 160            white_breathe_half_cycle_reached,     // white_breathe
+ 161            combination_half_cycle_reached,     // combination
+ 162            music_sensor_half_cycle_reached   // music_sensor
+ 163          };
+ 164          
+ 165          
+ 166          void ctrl_speed_level_changed(const u8 speed) {
+ 167   1        if (check_speed_level(speed))
+ 168   1          led_logic_speed = speed;
+ 169   1      }
+ 170          
+ 171          void ctrl_lumins_changed(const u8 lumins) {
+ 172   1        u8 i;
+ 173   1        if (check_lumins_level(lumins))
+ 174   1        {
+ 175   2          for (i = 0; i < 19; ++i)
+ 176   2          {
+ 177   3            led_config_logic[i].lumins = lumins;
+ 178   3          }
+ 179   2      
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 4   
+
+ 180   2        }
+ 181   1      }
+ 182          
+ 183          
+ 184          void ctrl_mode_changed(const u8 mode_code) {
+ 185   1        if (check_display_mode_type(mode_code) && led_mode_logic != (disp_t)mode_code) {
+ 186   2          led_mode_logic = (disp_t)mode_code;
+ 187   2          led_mode_set = led_mode_logic;
+ 188   2          led_mode_changed();
+ 189   2        }
+ 190   1        
+ 191   1      } 
+ 192          // ------------------------- public -------------------------
+ 193          void display_startup_init() {
+ 194   1        led_flicker.cycle_output = OFF;
+ 195   1        led_flicker.cycle_enable = DISABLE;
+ 196   1        led_flicker.counter_for_cycle = 0;
+ 197   1        led_display_off_driver_init();
+ 198   1        led_config_change();
+ 199   1        // LED_OUT = 0;
+ 200   1      }
+ 201          
+ 202          void led_display_task() {
+ 203   1        led_cycle_based_adjust();
+ 204   1      }
+ 205          
+ 206          
+ 207          void led_mode_changed()  {
+ 208   1        driver_init_pt led_mode_driver_init = driver_init[led_mode_logic];
+ 209   1        
+ 210   1        if (led_mode_driver_init)
+ 211   1          led_mode_driver_init();
+ 212   1        led_flicker.counter_for_cycle = 0;
+ 213   1        led_config_change();
+ 214   1      }
+ 215          
+ 216          // ------------------------- private -------------------------
+ 217          
+ 218          static void led_cycle_based_adjust() {
+ 219   1        if (led_flicker.cycle_enable) {
+ 220   2          if (led_flicker.counter_for_cycle >= cycle_params[led_mode_logic][led_logic_speed] >> 1)
+ 221   2            half_cycle_reached();
+ 222   2      
+ 223   2        } else {
+ 224   2          led_flicker.counter_for_cycle = 0;
+ 225   2        }
+ 226   1      }
+ 227          
+ 228          
+ 229          static void half_cycle_reached() {
+ 230   1      
+ 231   1        if (half_cycle_callback[led_mode_logic])
+ 232   1          half_cycle_callback[led_mode_logic]();
+ 233   1        led_config_change();
+ 234   1        led_flicker.counter_for_cycle = 0;
+ 235   1      }
+ 236          
+ 237          
+ 238          // ------------------------- Display Mode Code 0 --------------------------
+ 239          static void led_display_off_driver(void) {
+ 240   1      
+ 241   1      }
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 5   
+
+ 242          
+ 243          static void led_display_off_driver_init() {
+ 244   1        u8 i;
+ 245   1        led_flicker.cycle_output = OFF;
+ 246   1        led_flicker.cycle_enable = DISABLE;
+ 247   1        led_mode_logic = led_display_off;
+ 248   1        for(i = 0; i < 19; i++)
+ 249   1        {
+ 250   2          led_config_logic[i].red = 0;
+ 251   2          led_config_logic[i].green = 0;
+ 252   2          led_config_logic[i].blue = 0;
+ 253   2        }
+ 254   1      }
+ 255          
+ 256          static void led_display_off_half_cycle_reached()
+ 257          {
+ 258   1        
+ 259   1      }
+ 260          
+ 261          
+ 262          // ------------------------- Display Mode Code 1 --------------------------
+ 263          // 白光
+ 264          static void moon_light_driver(void) {
+ 265   1        // led_config_logic.lumins = led_config_set.lumins;
+ 266   1          led_config_change();
+ 267   1      }
+ 268          
+ 269          static void moon_light_driver_init() {
+ 270   1        u8 i;
+ 271   1        led_flicker.cycle_output = ON;
+ 272   1        led_flicker.cycle_enable = DISABLE;
+ 273   1        
+ 274   1        // led_config_logic.lumins = led_config_set.lumins;
+ 275   1        led_mode_logic = moon_light;
+ 276   1      
+ 277   1        for(i = 0; i < 19; i++)
+ 278   1        {
+ 279   2          led_config_logic[i].red = 128;
+ 280   2          led_config_logic[i].green = 128;
+ 281   2          led_config_logic[i].blue = 128;
+ 282   2        }
+ 283   1      }
+ 284          
+ 285          static void moon_light_half_cycle_reached()
+ 286          {
+ 287   1        
+ 288   1      }
+ 289          
+ 290          // ------------------------- Display Mode Code 2 --------------------------
+ 291          // 烟花
+ 292          // 左右两边同时按红/绿/翠绿/浅蓝/蓝/粉红/的顺序由下往上一个一个亮起
+ 293          u8 cnt_for_cycle_fire_work = 0;
+ 294          u8 cnt_for_one_cycle_fire_work = 0;
+ 295          static void fire_work_driver(void) {
+ 296   1        // led_config_logic.lumins = led_config_set.lumins;
+ 297   1          led_config_change();
+ 298   1      }
+ 299          
+ 300          static void fire_work_driver_init() {
+ 301   1        u8 i;
+ 302   1        led_flicker.cycle_output = ON;
+ 303   1        led_flicker.cycle_enable = ENABLE;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 6   
+
+ 304   1      
+ 305   1        // led_config_logic.lumins = led_config_set.lumins;
+ 306   1        led_mode_logic = fire_work;
+ 307   1        cnt_for_cycle_fire_work = 0;
+ 308   1        cnt_for_one_cycle_fire_work = 0;
+ 309   1        for(i = 0; i < 19; i++)
+ 310   1        {
+ 311   2          led_config_logic[i].green = 0;
+ 312   2          led_config_logic[i].red = 0;
+ 313   2          led_config_logic[i].blue = 0;
+ 314   2        }
+ 315   1        // 红色
+ 316   1        led_config_logic[0].red = 255;
+ 317   1        led_config_logic[18].red = 255;
+ 318   1      }
+ 319          
+ 320          static void fire_work_half_cycle_reached() {
+ 321   1          u8 i;
+ 322   1        ++ cnt_for_one_cycle_fire_work;
+ 323   1        if(cnt_for_one_cycle_fire_work == 10)
+ 324   1        {
+ 325   2          cnt_for_one_cycle_fire_work = 0;
+ 326   2          ++ cnt_for_cycle_fire_work;
+ 327   2          if(cnt_for_cycle_fire_work == 6)
+ 328   2            cnt_for_cycle_fire_work = 0; 
+ 329   2        }
+ 330   1        if(!cnt_for_cycle_fire_work)
+ 331   1        {
+ 332   2          for(i = 0; i < 19; i++)
+ 333   2          {
+ 334   3            if(i == cnt_for_one_cycle_fire_work || i == 18 - cnt_for_one_cycle_fire_work)
+ 335   3              led_config_logic[i].red = 255;
+ 336   3            else
+ 337   3              led_config_logic[i].red = 0;
+ 338   3            led_config_logic[i].green = 0;
+ 339   3            led_config_logic[i].blue = 0;
+ 340   3          }
+ 341   2        } else if(cnt_for_cycle_fire_work == 1){
+ 342   2          for(i = 0; i < 19; i++)
+ 343   2          {
+ 344   3            if(i == cnt_for_one_cycle_fire_work || i == 18 - cnt_for_one_cycle_fire_work)
+ 345   3              led_config_logic[i].green = 255;
+ 346   3            else
+ 347   3              led_config_logic[i].green = 0;
+ 348   3            led_config_logic[i].red = 0;
+ 349   3            led_config_logic[i].blue = 0;
+ 350   3          }
+ 351   2        } else if(cnt_for_cycle_fire_work == 2){
+ 352   2          for(i = 0; i < 19; i++)
+ 353   2          {
+ 354   3            if(i == cnt_for_one_cycle_fire_work || i == 18 - cnt_for_one_cycle_fire_work)
+ 355   3            {
+ 356   4              led_config_logic[i].green = 201;
+ 357   4              led_config_logic[i].blue = 87;
+ 358   4              led_config_logic[i].red = 0;
+ 359   4            }
+ 360   3            else{
+ 361   4              led_config_logic[i].green = 0;
+ 362   4              led_config_logic[i].red = 0;
+ 363   4              led_config_logic[i].blue = 0;
+ 364   4            }
+ 365   3          }
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 7   
+
+ 366   2        } else if(cnt_for_cycle_fire_work == 3){
+ 367   2          for(i = 0; i < 19; i++)
+ 368   2          {
+ 369   3            if(i == cnt_for_one_cycle_fire_work || i == 18 - cnt_for_one_cycle_fire_work)
+ 370   3            {
+ 371   4              led_config_logic[i].blue = 230;
+ 372   4              led_config_logic[i].green = 224;
+ 373   4              led_config_logic[i].red = 176;
+ 374   4            }
+ 375   3            else{
+ 376   4              led_config_logic[i].green = 0;
+ 377   4              led_config_logic[i].red = 0;
+ 378   4              led_config_logic[i].blue = 0;
+ 379   4            }
+ 380   3          }
+ 381   2        } else if(cnt_for_cycle_fire_work == 4){
+ 382   2          for(i = 0; i < 19; i++)
+ 383   2          {
+ 384   3            if(i == cnt_for_one_cycle_fire_work || i == 18 - cnt_for_one_cycle_fire_work)
+ 385   3            {
+ 386   4              led_config_logic[i].green = 0;
+ 387   4              led_config_logic[i].red = 0;
+ 388   4              led_config_logic[i].blue = 255;
+ 389   4            }
+ 390   3            else{
+ 391   4              led_config_logic[i].green = 0;
+ 392   4              led_config_logic[i].red = 0;
+ 393   4              led_config_logic[i].blue = 0;
+ 394   4            }
+ 395   3          }
+ 396   2        }
+ 397   1        else if(cnt_for_cycle_fire_work == 5){
+ 398   2          for(i = 0; i < 19; i++)
+ 399   2          {
+ 400   3            if(i == cnt_for_one_cycle_fire_work || i == 18 - cnt_for_one_cycle_fire_work)
+ 401   3            {
+ 402   4              led_config_logic[i].green = 192;
+ 403   4              led_config_logic[i].red = 255;
+ 404   4              led_config_logic[i].blue = 203;
+ 405   4            }
+ 406   3            else{
+ 407   4              led_config_logic[i].green = 0;
+ 408   4              led_config_logic[i].red = 0;
+ 409   4              led_config_logic[i].blue = 0;
+ 410   4            }
+ 411   3          }
+ 412   2        }
+ 413   1      }
+ 414          
+ 415          // ------------------------- Display Mode Code 3 --------------------------
+ 416          //风火轮
+ 417          //单个灯亮起、逆时针转一圈，换另外一个颜色逆时针转一圈，按照红/绿/翠绿/�
+             -�蓝/蓝/粉红/的顺序、依次循环
+ 418          u8 cnt_for_cycle_hot_wheels = 0;
+ 419          u8 cnt_for_one_cycle_hot_wheels = 0;
+ 420          
+ 421          static void hot_wheels_driver() {
+ 422   1          led_config_change();
+ 423   1      }
+ 424          
+ 425          static void hot_wheels_driver_init() {
+ 426   1        u8 i;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 8   
+
+ 427   1        led_flicker.cycle_output = ON;
+ 428   1        led_flicker.cycle_enable = ENABLE;
+ 429   1        led_mode_logic = hot_wheels;
+ 430   1        cnt_for_cycle_hot_wheels = 0;
+ 431   1        cnt_for_one_cycle_hot_wheels = 0;
+ 432   1        for(i = 0; i < 19; i++)
+ 433   1        {
+ 434   2          if(i == cnt_for_one_cycle_hot_wheels)
+ 435   2            led_config_logic[i].red = 255;
+ 436   2          else
+ 437   2            led_config_logic[i].red = 0;
+ 438   2          led_config_logic[i].green = 0;
+ 439   2          led_config_logic[i].blue = 0;
+ 440   2        }
+ 441   1      }
+ 442          
+ 443          static void hot_wheels_half_cycle_reached() {
+ 444   1        u8 i;
+ 445   1        ++ cnt_for_one_cycle_hot_wheels;
+ 446   1        if(cnt_for_one_cycle_hot_wheels == 19)
+ 447   1        {
+ 448   2          cnt_for_one_cycle_hot_wheels = 0;
+ 449   2          ++ cnt_for_cycle_hot_wheels;
+ 450   2          if(cnt_for_cycle_hot_wheels == 6)
+ 451   2            cnt_for_cycle_hot_wheels = 0; 
+ 452   2        }
+ 453   1        // 红色/逆时针
+ 454   1        if(!cnt_for_cycle_hot_wheels)
+ 455   1        {
+ 456   2          for(i = 0; i < 19; i++)
+ 457   2          {
+ 458   3            if(i == cnt_for_one_cycle_hot_wheels)
+ 459   3              led_config_logic[i].red = 255;
+ 460   3            else
+ 461   3              led_config_logic[i].red = 0;
+ 462   3            led_config_logic[i].green = 0;
+ 463   3            led_config_logic[i].blue = 0;
+ 464   3          }
+ 465   2        // 绿色/顺时针
+ 466   2        } else if(cnt_for_cycle_hot_wheels == 1){
+ 467   2          for(i = 0; i < 19; i++)
+ 468   2          {
+ 469   3            if(i == cnt_for_one_cycle_hot_wheels)
+ 470   3              led_config_logic[i].green = 255;
+ 471   3            else
+ 472   3              led_config_logic[i].green = 0;
+ 473   3            led_config_logic[i].red = 0;
+ 474   3            led_config_logic[i].blue = 0;
+ 475   3          }
+ 476   2        // 翠绿/逆时针
+ 477   2        }  else if(cnt_for_cycle_hot_wheels == 2){
+ 478   2          for(i = 0; i < 19; i++)
+ 479   2          {
+ 480   3            if(i == cnt_for_one_cycle_hot_wheels)
+ 481   3            {
+ 482   4              led_config_logic[i].green = 201;
+ 483   4              led_config_logic[i].blue = 87;
+ 484   4              led_config_logic[i].red = 0;
+ 485   4            }
+ 486   3            else
+ 487   3            {
+ 488   4              led_config_logic[i].green = 0;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 9   
+
+ 489   4              led_config_logic[i].blue = 0;
+ 490   4              led_config_logic[i].red = 0;
+ 491   4            }
+ 492   3          }
+ 493   2        // 浅蓝/顺时针
+ 494   2        } else if(cnt_for_cycle_hot_wheels == 3){
+ 495   2          for(i = 0; i < 19; i++)
+ 496   2          {
+ 497   3            if(i == cnt_for_one_cycle_hot_wheels)
+ 498   3            {
+ 499   4              led_config_logic[i].blue = 230;
+ 500   4              led_config_logic[i].green = 224;
+ 501   4              led_config_logic[i].red = 176;
+ 502   4            }
+ 503   3            else
+ 504   3            {
+ 505   4              led_config_logic[i].blue = 0;
+ 506   4              led_config_logic[i].green = 0;
+ 507   4              led_config_logic[i].red = 0;
+ 508   4            }
+ 509   3            
+ 510   3            
+ 511   3          }
+ 512   2        }
+ 513   1        // 蓝/逆时针
+ 514   1        else if(cnt_for_cycle_hot_wheels == 4){
+ 515   2          for(i = 0; i < 19; i++)
+ 516   2          {
+ 517   3            if(i == cnt_for_one_cycle_hot_wheels)
+ 518   3              led_config_logic[i].blue = 255;
+ 519   3            else
+ 520   3              led_config_logic[i].blue = 0;
+ 521   3            led_config_logic[i].green = 0;
+ 522   3            led_config_logic[i].red = 0;
+ 523   3          }
+ 524   2        }
+ 525   1        // 粉红/顺时针
+ 526   1         else if(cnt_for_cycle_hot_wheels == 5){
+ 527   2          for(i = 0; i < 19; i++)
+ 528   2          {
+ 529   3            if(i == cnt_for_one_cycle_hot_wheels)
+ 530   3            {
+ 531   4              led_config_logic[i].green = 192;
+ 532   4              led_config_logic[i].red = 255;
+ 533   4              led_config_logic[i].blue = 203;
+ 534   4            }
+ 535   3            else
+ 536   3            {
+ 537   4              led_config_logic[i].green = 0;
+ 538   4              led_config_logic[i].red = 0;
+ 539   4              led_config_logic[i].blue = 0;
+ 540   4            }
+ 541   3      
+ 542   3          }
+ 543   2        }
+ 544   1      }
+ 545          
+ 546          // ------------------------- Display Mode Code 4 --------------------------
+ 547          // 彩虹追逐
+ 548          // 红/绿/翠绿/浅蓝/蓝/粉红/六种颜色同时亮起形成一个半圆，左右摆动。
+ 549          // todo
+ 550          u8 cnt_for_cycle_rainbow_chasing = 0;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 10  
+
+ 551          
+ 552          static void rainbow_chasing_driver(void) {
+ 553   1          led_config_change();
+ 554   1      }
+ 555          
+ 556          static void rainbow_chasing_driver_init() {
+ 557   1        u8 i;
+ 558   1        led_flicker.cycle_output = ON;
+ 559   1        led_flicker.cycle_enable = ENABLE;
+ 560   1        led_mode_logic = rainbow_chasing;
+ 561   1        cnt_for_cycle_rainbow_chasing = 0;
+ 562   1        for(i = 0; i < 19; i++)
+ 563   1        {
+ 564   2          led_config_logic[i].green = 0;
+ 565   2          led_config_logic[i].red = 0;
+ 566   2          led_config_logic[i].blue = 0;
+ 567   2        }
+ 568   1          // 红色
+ 569   1          led_config_logic[0].red = 255;
+ 570   1          // 绿色
+ 571   1          led_config_logic[1].green = 255;
+ 572   1          // 翠绿
+ 573   1          led_config_logic[2].green = 201;
+ 574   1          led_config_logic[2].blue = 87;
+ 575   1          // 浅蓝
+ 576   1          led_config_logic[3].blue = 230;
+ 577   1          led_config_logic[3].green = 224;
+ 578   1          led_config_logic[3].red = 176;
+ 579   1          // 蓝
+ 580   1          led_config_logic[4].blue = 255;
+ 581   1          // 粉红
+ 582   1          led_config_logic[5].green = 192;
+ 583   1          led_config_logic[5].red = 255;
+ 584   1          led_config_logic[5].blue = 203;
+ 585   1      }
+ 586          
+ 587          static void rainbow_chasing_half_cycle_reached() {
+ 588   1          u8 i;
+ 589   1        for(i = 0; i < 19; i++)
+ 590   1        {
+ 591   2          led_config_logic[i].green = 0;
+ 592   2          led_config_logic[i].red = 0;
+ 593   2          led_config_logic[i].blue = 0;
+ 594   2        }
+ 595   1        ++ cnt_for_cycle_rainbow_chasing;
+ 596   1        if(cnt_for_cycle_rainbow_chasing == 26)
+ 597   1          cnt_for_cycle_rainbow_chasing = 0;
+ 598   1        if(!cnt_for_cycle_rainbow_chasing)
+ 599   1        {
+ 600   2          // 红色
+ 601   2          led_config_logic[0].red = 255;
+ 602   2          // 绿色
+ 603   2          led_config_logic[1].green = 255;
+ 604   2          // 翠绿
+ 605   2          led_config_logic[2].green = 201;
+ 606   2          led_config_logic[2].blue = 87;
+ 607   2          // 浅蓝
+ 608   2          led_config_logic[3].blue = 230;
+ 609   2          led_config_logic[3].green = 224;
+ 610   2          led_config_logic[3].red = 176;
+ 611   2          // 蓝
+ 612   2          led_config_logic[4].blue = 255;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 11  
+
+ 613   2          // 粉红
+ 614   2          led_config_logic[5].green = 192;
+ 615   2          led_config_logic[5].red = 255;
+ 616   2          led_config_logic[5].blue = 203;
+ 617   2        } else if(cnt_for_cycle_rainbow_chasing == 1 || cnt_for_cycle_rainbow_chasing == 25){
+ 618   2          // 红色
+ 619   2          led_config_logic[1].red = 255;
+ 620   2          // 绿色
+ 621   2          led_config_logic[2].green = 255;
+ 622   2          // 翠绿
+ 623   2          led_config_logic[3].green = 201;
+ 624   2          led_config_logic[3].blue = 87;
+ 625   2          // 浅蓝
+ 626   2          led_config_logic[4].blue = 230;
+ 627   2          led_config_logic[4].green = 224;
+ 628   2          led_config_logic[4].red = 176;
+ 629   2          // 蓝
+ 630   2          led_config_logic[5].blue = 255;
+ 631   2          // 粉红
+ 632   2          led_config_logic[6].green = 192;
+ 633   2          led_config_logic[6].red = 255;
+ 634   2          led_config_logic[6].blue = 203;
+ 635   2        } else if(cnt_for_cycle_rainbow_chasing == 2  || cnt_for_cycle_rainbow_chasing == 24){
+ 636   2          // 红色
+ 637   2          led_config_logic[2].red = 255;
+ 638   2          // 绿色
+ 639   2          led_config_logic[3].green = 255;
+ 640   2          // 翠绿
+ 641   2          led_config_logic[4].green = 201;
+ 642   2          led_config_logic[4].blue = 87;
+ 643   2          // 浅蓝
+ 644   2          led_config_logic[5].blue = 230;
+ 645   2          led_config_logic[5].green = 224;
+ 646   2          led_config_logic[5].red = 176;
+ 647   2          // 蓝
+ 648   2          led_config_logic[6].blue = 255;
+ 649   2          // 粉红
+ 650   2          led_config_logic[7].green = 192;
+ 651   2          led_config_logic[7].red = 255;
+ 652   2          led_config_logic[7].blue = 203;
+ 653   2        } else if(cnt_for_cycle_rainbow_chasing == 3  || cnt_for_cycle_rainbow_chasing == 23){
+ 654   2          // 红色
+ 655   2          led_config_logic[3].red = 255;
+ 656   2          // 绿色
+ 657   2          led_config_logic[4].green = 255;
+ 658   2          // 翠绿
+ 659   2          led_config_logic[5].green = 201;
+ 660   2          led_config_logic[5].blue = 87;
+ 661   2          // 浅蓝
+ 662   2          led_config_logic[6].blue = 230;
+ 663   2          led_config_logic[6].green = 224;
+ 664   2          led_config_logic[6].red = 176;
+ 665   2          // 蓝
+ 666   2          led_config_logic[7].blue = 255;
+ 667   2          // 粉红
+ 668   2          led_config_logic[8].green = 192;
+ 669   2          led_config_logic[8].red = 255;
+ 670   2          led_config_logic[8].blue = 203;
+ 671   2        } else if(cnt_for_cycle_rainbow_chasing == 4 || cnt_for_cycle_rainbow_chasing == 22){
+ 672   2          // 红色
+ 673   2          led_config_logic[4].red = 255;
+ 674   2          // 绿色
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 12  
+
+ 675   2          led_config_logic[5].green = 255;
+ 676   2          // 翠绿
+ 677   2          led_config_logic[6].green = 201;
+ 678   2          led_config_logic[6].blue = 87;
+ 679   2          // 浅蓝
+ 680   2          led_config_logic[7].blue = 230;
+ 681   2          led_config_logic[7].green = 224;
+ 682   2          led_config_logic[7].red = 176;
+ 683   2          // 蓝
+ 684   2          led_config_logic[8].blue = 255;
+ 685   2          // 粉红
+ 686   2          led_config_logic[9].green = 192;
+ 687   2          led_config_logic[9].red = 255;
+ 688   2          led_config_logic[9].blue = 203;
+ 689   2        } else if(cnt_for_cycle_rainbow_chasing == 5  || cnt_for_cycle_rainbow_chasing == 21){
+ 690   2              // 红色
+ 691   2          led_config_logic[5].red = 255;
+ 692   2          // 绿色
+ 693   2          led_config_logic[6].green = 255;
+ 694   2          // 翠绿
+ 695   2          led_config_logic[7].green = 201;
+ 696   2          led_config_logic[7].blue = 87;
+ 697   2          // 浅蓝
+ 698   2          led_config_logic[8].blue = 230;
+ 699   2          led_config_logic[8].green = 224;
+ 700   2          led_config_logic[8].red = 176;
+ 701   2          // 蓝
+ 702   2          led_config_logic[9].blue = 255;
+ 703   2          // 粉红
+ 704   2          led_config_logic[10].green = 192;
+ 705   2          led_config_logic[10].red = 255;
+ 706   2          led_config_logic[10].blue = 203;
+ 707   2        } else if(cnt_for_cycle_rainbow_chasing == 6 || cnt_for_cycle_rainbow_chasing == 20){
+ 708   2              // 红色
+ 709   2          led_config_logic[6].red = 255;
+ 710   2          // 绿色
+ 711   2          led_config_logic[7].green = 255;
+ 712   2          // 翠绿
+ 713   2          led_config_logic[8].green = 201;
+ 714   2          led_config_logic[8].blue = 87;
+ 715   2          // 浅蓝
+ 716   2          led_config_logic[9].blue = 230;
+ 717   2          led_config_logic[9].green = 224;
+ 718   2          led_config_logic[9].red = 176;
+ 719   2          // 蓝
+ 720   2          led_config_logic[10].blue = 255;
+ 721   2          // 粉红
+ 722   2          led_config_logic[11].green = 192;
+ 723   2          led_config_logic[11].red = 255;
+ 724   2          led_config_logic[11].blue = 203;
+ 725   2        } else if(cnt_for_cycle_rainbow_chasing == 7 || cnt_for_cycle_rainbow_chasing == 19){
+ 726   2              // 红色
+ 727   2          led_config_logic[7].red = 255;
+ 728   2          // 绿色
+ 729   2          led_config_logic[8].green = 255;
+ 730   2          // 翠绿
+ 731   2          led_config_logic[9].green = 201;
+ 732   2          led_config_logic[9].blue = 87;
+ 733   2          // 浅蓝
+ 734   2          led_config_logic[10].blue = 230;
+ 735   2          led_config_logic[10].green = 224;
+ 736   2          led_config_logic[10].red = 176;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 13  
+
+ 737   2          // 蓝
+ 738   2          led_config_logic[11].blue = 255;
+ 739   2          // 粉红
+ 740   2          led_config_logic[12].green = 192;
+ 741   2          led_config_logic[12].red = 255;
+ 742   2          led_config_logic[12].blue = 203;
+ 743   2        } else if(cnt_for_cycle_rainbow_chasing == 8 || cnt_for_cycle_rainbow_chasing == 18){
+ 744   2              // 红色
+ 745   2          led_config_logic[8].red = 255;
+ 746   2          // 绿色
+ 747   2          led_config_logic[9].green = 255;
+ 748   2          // 翠绿
+ 749   2          led_config_logic[10].green = 201;
+ 750   2          led_config_logic[10].blue = 87;
+ 751   2          // 浅蓝
+ 752   2          led_config_logic[11].blue = 230;
+ 753   2          led_config_logic[11].green = 224;
+ 754   2          led_config_logic[11].red = 176;
+ 755   2          // 蓝
+ 756   2          led_config_logic[12].blue = 255;
+ 757   2          // 粉红
+ 758   2          led_config_logic[13].green = 192;
+ 759   2          led_config_logic[13].red = 255;
+ 760   2          led_config_logic[13].blue = 203;
+ 761   2        } else if(cnt_for_cycle_rainbow_chasing == 9 || cnt_for_cycle_rainbow_chasing == 17){
+ 762   2              // 红色
+ 763   2          led_config_logic[9].red = 255;
+ 764   2          // 绿色
+ 765   2          led_config_logic[10].green = 255;
+ 766   2          // 翠绿
+ 767   2          led_config_logic[11].green = 201;
+ 768   2          led_config_logic[11].blue = 87;
+ 769   2          // 浅蓝
+ 770   2          led_config_logic[12].blue = 230;
+ 771   2          led_config_logic[12].green = 224;
+ 772   2          led_config_logic[12].red = 176;
+ 773   2          // 蓝
+ 774   2          led_config_logic[13].blue = 255;
+ 775   2          // 粉红
+ 776   2          led_config_logic[14].green = 192;
+ 777   2          led_config_logic[14].red = 255;
+ 778   2          led_config_logic[14].blue = 203;
+ 779   2        } else if(cnt_for_cycle_rainbow_chasing == 10 || cnt_for_cycle_rainbow_chasing == 16){
+ 780   2              // 红色
+ 781   2          led_config_logic[10].red = 255;
+ 782   2          // 绿色
+ 783   2          led_config_logic[11].green = 255;
+ 784   2          // 翠绿
+ 785   2          led_config_logic[12].green = 201;
+ 786   2          led_config_logic[12].blue = 87;
+ 787   2          // 浅蓝
+ 788   2          led_config_logic[13].blue = 230;
+ 789   2          led_config_logic[13].green = 224;
+ 790   2          led_config_logic[13].red = 176;
+ 791   2          // 蓝
+ 792   2          led_config_logic[14].blue = 255;
+ 793   2          // 粉红
+ 794   2          led_config_logic[15].green = 192;
+ 795   2          led_config_logic[15].red = 255;
+ 796   2          led_config_logic[15].blue = 203;
+ 797   2        } else if(cnt_for_cycle_rainbow_chasing == 11 || cnt_for_cycle_rainbow_chasing == 15){
+ 798   2              // 红色
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 14  
+
+ 799   2          led_config_logic[11].red = 255;
+ 800   2          // 绿色
+ 801   2          led_config_logic[12].green = 255;
+ 802   2          // 翠绿
+ 803   2          led_config_logic[13].green = 201;
+ 804   2          led_config_logic[13].blue = 87;
+ 805   2          // 浅蓝
+ 806   2          led_config_logic[14].blue = 230;
+ 807   2          led_config_logic[14].green = 224;
+ 808   2          led_config_logic[14].red = 176;
+ 809   2          // 蓝
+ 810   2          led_config_logic[15].blue = 255;
+ 811   2          // 粉红
+ 812   2          led_config_logic[16].green = 192;
+ 813   2          led_config_logic[16].red = 255;
+ 814   2          led_config_logic[16].blue = 203;
+ 815   2        } else if(cnt_for_cycle_rainbow_chasing == 12 || cnt_for_cycle_rainbow_chasing == 14){
+ 816   2              // 红色
+ 817   2          led_config_logic[12].red = 255;
+ 818   2          // 绿色
+ 819   2          led_config_logic[13].green = 255;
+ 820   2          // 翠绿
+ 821   2          led_config_logic[14].green = 201;
+ 822   2          led_config_logic[14].blue = 87;
+ 823   2          // 浅蓝
+ 824   2          led_config_logic[15].blue = 230;
+ 825   2          led_config_logic[15].green = 224;
+ 826   2          led_config_logic[15].red = 176;
+ 827   2          // 蓝
+ 828   2          led_config_logic[16].blue = 255;
+ 829   2          // 粉红
+ 830   2          led_config_logic[17].green = 192;
+ 831   2          led_config_logic[17].red = 255;
+ 832   2          led_config_logic[17].blue = 203;
+ 833   2        } else if(cnt_for_cycle_rainbow_chasing == 13){
+ 834   2              // 红色
+ 835   2          led_config_logic[13].red = 255;
+ 836   2          // 绿色
+ 837   2          led_config_logic[14].green = 255;
+ 838   2          // 翠绿
+ 839   2          led_config_logic[15].green = 201;
+ 840   2          led_config_logic[15].blue = 87;
+ 841   2          // 浅蓝
+ 842   2          led_config_logic[16].blue = 230;
+ 843   2          led_config_logic[16].green = 224;
+ 844   2          led_config_logic[16].red = 176;
+ 845   2          // 蓝
+ 846   2          led_config_logic[17].blue = 255;
+ 847   2          // 粉红
+ 848   2          led_config_logic[18].green = 192;
+ 849   2          led_config_logic[18].red = 255;
+ 850   2          led_config_logic[18].blue = 203;
+ 851   2        }
+ 852   1      }
+ 853          
+ 854          // ------------------------- Display Mode Code 5 --------------------------
+ 855          // 七色追逐
+ 856          // 七种灯光间隔一个旋转变化
+ 857          // 白/红/绿/翠绿/浅蓝/蓝/粉红
+ 858          // todo
+ 859          u8 cnt_for_cycle_color_chasing_7 = 0;
+ 860          static void color_chasing_7_driver(void) {
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 15  
+
+ 861   1          led_config_change();
+ 862   1      }
+ 863          
+ 864          static void color_chasing_7_driver_init() {
+ 865   1        u8 i;
+ 866   1        for(i = 0; i < 19; i++)
+ 867   1        {
+ 868   2          led_config_logic[i].red = 0;
+ 869   2          led_config_logic[i].green = 0;
+ 870   2          led_config_logic[i].blue = 0;
+ 871   2        }
+ 872   1        led_flicker.cycle_output = ON;
+ 873   1        led_flicker.cycle_enable = ENABLE;
+ 874   1      
+ 875   1        // led_config_logic.lumins = led_config_set.lumins;
+ 876   1        led_mode_logic = color_chasing_7;
+ 877   1        cnt_for_cycle_color_chasing_7 = 0;
+ 878   1        // 白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿
+ 879   1          led_config_logic[0].green = 255;
+ 880   1          led_config_logic[0].red = 255;
+ 881   1          led_config_logic[0].blue = 255;
+ 882   1      
+ 883   1          led_config_logic[1].red = 255;
+ 884   1      
+ 885   1          led_config_logic[2].green = 255;
+ 886   1      
+ 887   1          led_config_logic[3].green = 201;
+ 888   1          led_config_logic[3].blue = 87;
+ 889   1      
+ 890   1          led_config_logic[4].blue = 230;
+ 891   1          led_config_logic[4].green = 224;
+ 892   1          led_config_logic[4].red = 176;
+ 893   1      
+ 894   1          led_config_logic[5].green = 255;
+ 895   1      
+ 896   1          led_config_logic[6].green = 192;
+ 897   1          led_config_logic[6].red = 255;
+ 898   1          led_config_logic[6].blue = 203;
+ 899   1      
+ 900   1          led_config_logic[7].green = 255;
+ 901   1          led_config_logic[7].red = 255;
+ 902   1          led_config_logic[7].blue = 255;
+ 903   1      
+ 904   1          led_config_logic[8].red = 255;
+ 905   1      
+ 906   1          led_config_logic[9].green = 255;
+ 907   1      
+ 908   1          led_config_logic[10].green = 201;
+ 909   1          led_config_logic[10].blue = 87;
+ 910   1      
+ 911   1          led_config_logic[11].blue = 230;
+ 912   1          led_config_logic[11].green = 224;
+ 913   1          led_config_logic[11].red = 176;
+ 914   1      
+ 915   1          led_config_logic[12].green = 255;
+ 916   1      
+ 917   1          led_config_logic[13].green = 192;
+ 918   1          led_config_logic[13].red = 255;
+ 919   1          led_config_logic[13].blue = 203;
+ 920   1      
+ 921   1          led_config_logic[14].green = 255;
+ 922   1          led_config_logic[14].red = 255;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 16  
+
+ 923   1          led_config_logic[14].blue = 255;
+ 924   1      
+ 925   1          led_config_logic[15].red = 255;
+ 926   1      
+ 927   1          led_config_logic[16].green = 255;
+ 928   1      
+ 929   1          led_config_logic[17].green = 201;
+ 930   1          led_config_logic[17].blue = 87;
+ 931   1      
+ 932   1          led_config_logic[18].blue = 230;
+ 933   1          led_config_logic[18].green = 224;
+ 934   1          led_config_logic[18].red = 176;
+ 935   1      
+ 936   1      
+ 937   1      }
+ 938          
+ 939          static void color_chasing_7_half_cycle_reached() {
+ 940   1          u8 i;
+ 941   1        ++ cnt_for_cycle_color_chasing_7;
+ 942   1        if(cnt_for_cycle_color_chasing_7 == 7)
+ 943   1          cnt_for_cycle_color_chasing_7 = 0;
+ 944   1        for(i = 0; i < 19; i++)
+ 945   1        {
+ 946   2          led_config_logic[i].green = 0;
+ 947   2          led_config_logic[i].red = 0;
+ 948   2          led_config_logic[i].blue = 0;
+ 949   2        }
+ 950   1      
+ 951   1        if(!cnt_for_cycle_color_chasing_7){
+ 952   2          // 白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红
+ 953   2          led_config_logic[0].green = 255;
+ 954   2          led_config_logic[0].red = 255;
+ 955   2          led_config_logic[0].blue = 255;
+ 956   2      
+ 957   2          led_config_logic[1].red = 255;
+ 958   2      
+ 959   2          led_config_logic[2].green = 255;
+ 960   2      
+ 961   2          led_config_logic[3].green = 201;
+ 962   2          led_config_logic[3].blue = 87;
+ 963   2      
+ 964   2          led_config_logic[4].blue = 230;
+ 965   2          led_config_logic[4].green = 224;
+ 966   2          led_config_logic[4].red = 176;
+ 967   2      
+ 968   2          led_config_logic[5].green = 255;
+ 969   2      
+ 970   2          led_config_logic[6].green = 192;
+ 971   2          led_config_logic[6].red = 255;
+ 972   2          led_config_logic[6].blue = 203;
+ 973   2      
+ 974   2          led_config_logic[7].green = 255;
+ 975   2          led_config_logic[7].red = 255;
+ 976   2          led_config_logic[7].blue = 255;
+ 977   2      
+ 978   2          led_config_logic[8].red = 255;
+ 979   2      
+ 980   2          led_config_logic[9].green = 255;
+ 981   2      
+ 982   2          led_config_logic[10].green = 201;
+ 983   2          led_config_logic[10].blue = 87;
+ 984   2      
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 17  
+
+ 985   2          led_config_logic[11].blue = 230;
+ 986   2          led_config_logic[11].green = 224;
+ 987   2          led_config_logic[11].red = 176;
+ 988   2      
+ 989   2          led_config_logic[12].green = 255;
+ 990   2      
+ 991   2          led_config_logic[13].green = 192;
+ 992   2          led_config_logic[13].red = 255;
+ 993   2          led_config_logic[13].blue = 203;
+ 994   2      
+ 995   2          led_config_logic[14].green = 255;
+ 996   2          led_config_logic[14].red = 255;
+ 997   2          led_config_logic[14].blue = 255;
+ 998   2      
+ 999   2          led_config_logic[15].red = 255;
+1000   2      
+1001   2          led_config_logic[16].green = 255;
+1002   2      
+1003   2          led_config_logic[17].green = 201;
+1004   2          led_config_logic[17].blue = 87;
+1005   2      
+1006   2          led_config_logic[18].blue = 230;
+1007   2          led_config_logic[18].green = 224;
+1008   2          led_config_logic[18].red = 176;
+1009   2      
+1010   2      
+1011   2        } else if(cnt_for_cycle_color_chasing_7 == 1) {
+1012   2          // 粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿
+1013   2          led_config_logic[0].green = 192;
+1014   2          led_config_logic[0].red = 255;
+1015   2          led_config_logic[0].blue = 203;
+1016   2      
+1017   2          led_config_logic[1].green = 255;
+1018   2          led_config_logic[1].red = 255;
+1019   2          led_config_logic[1].blue = 255;
+1020   2      
+1021   2          led_config_logic[2].red = 255;
+1022   2      
+1023   2          led_config_logic[3].green = 255;
+1024   2      
+1025   2          led_config_logic[4].green = 201;
+1026   2          led_config_logic[4].blue = 87;
+1027   2      
+1028   2          led_config_logic[5].blue = 230;
+1029   2          led_config_logic[5].green = 224;
+1030   2          led_config_logic[5].red = 176;
+1031   2      
+1032   2          led_config_logic[6].green = 255;
+1033   2      
+1034   2          led_config_logic[7].green = 192;
+1035   2          led_config_logic[7].red = 255;
+1036   2          led_config_logic[7].blue = 203;
+1037   2      
+1038   2          led_config_logic[8].green = 255;
+1039   2          led_config_logic[8].red = 255;
+1040   2          led_config_logic[8].blue = 255;
+1041   2      
+1042   2          led_config_logic[9].red = 255;
+1043   2      
+1044   2          led_config_logic[10].green = 255;
+1045   2      
+1046   2          led_config_logic[11].green = 201;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 18  
+
+1047   2          led_config_logic[11].blue = 87;
+1048   2      
+1049   2          led_config_logic[12].blue = 230;
+1050   2          led_config_logic[12].green = 224;
+1051   2          led_config_logic[12].red = 176;
+1052   2      
+1053   2          led_config_logic[13].green = 255;
+1054   2      
+1055   2          led_config_logic[14].green = 192;
+1056   2          led_config_logic[14].red = 255;
+1057   2          led_config_logic[14].blue = 203;
+1058   2      
+1059   2          led_config_logic[15].green = 255;
+1060   2          led_config_logic[15].red = 255;
+1061   2          led_config_logic[15].blue = 255;
+1062   2      
+1063   2          led_config_logic[16].red = 255;
+1064   2      
+1065   2          led_config_logic[17].green = 255;
+1066   2      
+1067   2          led_config_logic[18].green = 201;
+1068   2          led_config_logic[18].blue = 87;
+1069   2      
+1070   2        } else if(cnt_for_cycle_color_chasing_7 == 2) {
+1071   2          // 蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红
+1072   2      
+1073   2          led_config_logic[0].green = 255;
+1074   2      
+1075   2          led_config_logic[1].green = 192;
+1076   2          led_config_logic[1].red = 255;
+1077   2          led_config_logic[1].blue = 203;
+1078   2      
+1079   2          led_config_logic[2].green = 255;
+1080   2          led_config_logic[2].red = 255;
+1081   2          led_config_logic[2].blue = 255;
+1082   2      
+1083   2          led_config_logic[3].red = 255;
+1084   2      
+1085   2          led_config_logic[4].green = 255;
+1086   2      
+1087   2          led_config_logic[5].green = 201;
+1088   2          led_config_logic[5].blue = 87;
+1089   2      
+1090   2          led_config_logic[6].blue = 230;
+1091   2          led_config_logic[6].green = 224;
+1092   2          led_config_logic[6].red = 176;
+1093   2      
+1094   2          led_config_logic[7].green = 255;
+1095   2      
+1096   2          led_config_logic[8].green = 192;
+1097   2          led_config_logic[8].red = 255;
+1098   2          led_config_logic[8].blue = 203;
+1099   2      
+1100   2          led_config_logic[9].green = 255;
+1101   2          led_config_logic[9].red = 255;
+1102   2          led_config_logic[9].blue = 255;
+1103   2      
+1104   2          led_config_logic[10].red = 255;
+1105   2      
+1106   2          led_config_logic[11].green = 255;
+1107   2      
+1108   2          led_config_logic[12].green = 201;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 19  
+
+1109   2          led_config_logic[12].blue = 87;
+1110   2      
+1111   2          led_config_logic[13].blue = 230;
+1112   2          led_config_logic[13].green = 224;
+1113   2          led_config_logic[13].red = 176;
+1114   2      
+1115   2          led_config_logic[14].green = 255;
+1116   2      
+1117   2          led_config_logic[15].green = 192;
+1118   2          led_config_logic[15].red = 255;
+1119   2          led_config_logic[15].blue = 203;
+1120   2      
+1121   2          led_config_logic[16].green = 255;
+1122   2          led_config_logic[16].red = 255;
+1123   2          led_config_logic[16].blue = 255;
+1124   2      
+1125   2          led_config_logic[17].red = 255;
+1126   2      
+1127   2          led_config_logic[18].green = 255;
+1128   2      
+1129   2      
+1130   2        } else if(cnt_for_cycle_color_chasing_7 == 3) {
+1131   2          // 浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白
+1132   2          led_config_logic[0].blue = 230;
+1133   2          led_config_logic[0].green = 224;
+1134   2          led_config_logic[0].red = 176;
+1135   2      
+1136   2      
+1137   2          led_config_logic[1].green = 255;
+1138   2      
+1139   2          led_config_logic[2].green = 192;
+1140   2          led_config_logic[2].red = 255;
+1141   2          led_config_logic[2].blue = 203;
+1142   2      
+1143   2          led_config_logic[3].green = 255;
+1144   2          led_config_logic[3].red = 255;
+1145   2          led_config_logic[3].blue = 255;
+1146   2      
+1147   2          led_config_logic[4].red = 255;
+1148   2      
+1149   2          led_config_logic[5].green = 255;
+1150   2      
+1151   2          led_config_logic[6].green = 201;
+1152   2          led_config_logic[6].blue = 87;
+1153   2      
+1154   2          led_config_logic[7].blue = 230;
+1155   2          led_config_logic[7].green = 224;
+1156   2          led_config_logic[7].red = 176;
+1157   2      
+1158   2          led_config_logic[8].green = 255;
+1159   2      
+1160   2          led_config_logic[9].green = 192;
+1161   2          led_config_logic[9].red = 255;
+1162   2          led_config_logic[9].blue = 203;
+1163   2      
+1164   2          led_config_logic[10].green = 255;
+1165   2          led_config_logic[10].red = 255;
+1166   2          led_config_logic[10].blue = 255;
+1167   2      
+1168   2          led_config_logic[11].red = 255;
+1169   2      
+1170   2          led_config_logic[12].green = 255;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 20  
+
+1171   2      
+1172   2          led_config_logic[13].green = 201;
+1173   2          led_config_logic[13].blue = 87;
+1174   2      
+1175   2          led_config_logic[14].blue = 230;
+1176   2          led_config_logic[14].green = 224;
+1177   2          led_config_logic[14].red = 176;
+1178   2      
+1179   2          led_config_logic[15].green = 255;
+1180   2      
+1181   2          led_config_logic[16].green = 192;
+1182   2          led_config_logic[16].red = 255;
+1183   2          led_config_logic[16].blue = 203;
+1184   2      
+1185   2          led_config_logic[17].green = 255;
+1186   2          led_config_logic[17].red = 255;
+1187   2          led_config_logic[17].blue = 255;
+1188   2      
+1189   2          led_config_logic[18].red = 255;
+1190   2      
+1191   2        } else if(cnt_for_cycle_color_chasing_7 == 4) {
+1192   2          // 翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红
+1193   2          led_config_logic[0].green = 201;
+1194   2          led_config_logic[0].blue = 87;
+1195   2      
+1196   2          led_config_logic[1].blue = 230;
+1197   2          led_config_logic[1].green = 224;
+1198   2          led_config_logic[1].red = 176;
+1199   2      
+1200   2      
+1201   2          led_config_logic[2].green = 255;
+1202   2      
+1203   2          led_config_logic[3].green = 192;
+1204   2          led_config_logic[3].red = 255;
+1205   2          led_config_logic[3].blue = 203;
+1206   2      
+1207   2          led_config_logic[4].green = 255;
+1208   2          led_config_logic[4].red = 255;
+1209   2          led_config_logic[4].blue = 255;
+1210   2      
+1211   2          led_config_logic[5].red = 255;
+1212   2      
+1213   2          led_config_logic[6].green = 255;
+1214   2      
+1215   2          led_config_logic[7].green = 201;
+1216   2          led_config_logic[7].blue = 87;
+1217   2      
+1218   2          led_config_logic[8].blue = 230;
+1219   2          led_config_logic[8].green = 224;
+1220   2          led_config_logic[8].red = 176;
+1221   2      
+1222   2          led_config_logic[9].green = 255;
+1223   2      
+1224   2          led_config_logic[10].green = 192;
+1225   2          led_config_logic[10].red = 255;
+1226   2          led_config_logic[10].blue = 203;
+1227   2      
+1228   2          led_config_logic[11].green = 255;
+1229   2          led_config_logic[11].red = 255;
+1230   2          led_config_logic[11].blue = 255;
+1231   2      
+1232   2          led_config_logic[12].red = 255;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 21  
+
+1233   2      
+1234   2          led_config_logic[13].green = 255;
+1235   2      
+1236   2          led_config_logic[14].green = 201;
+1237   2          led_config_logic[14].blue = 87;
+1238   2      
+1239   2          led_config_logic[15].blue = 230;
+1240   2          led_config_logic[15].green = 224;
+1241   2          led_config_logic[15].red = 176;
+1242   2      
+1243   2          led_config_logic[16].green = 255;
+1244   2      
+1245   2          led_config_logic[17].green = 192;
+1246   2          led_config_logic[17].red = 255;
+1247   2          led_config_logic[17].blue = 203;
+1248   2      
+1249   2          led_config_logic[18].green = 255;
+1250   2          led_config_logic[18].red = 255;
+1251   2          led_config_logic[18].blue = 255;
+1252   2      
+1253   2      
+1254   2        } else if(cnt_for_cycle_color_chasing_7 == 5) {
+1255   2          // 绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝
+1256   2          led_config_logic[0].green = 255;
+1257   2      
+1258   2          led_config_logic[1].green = 201;
+1259   2          led_config_logic[1].blue = 87;
+1260   2      
+1261   2          led_config_logic[2].blue = 230;
+1262   2          led_config_logic[2].green = 224;
+1263   2          led_config_logic[2].red = 176;
+1264   2      
+1265   2      
+1266   2          led_config_logic[3].green = 255;
+1267   2      
+1268   2          led_config_logic[4].green = 192;
+1269   2          led_config_logic[4].red = 255;
+1270   2          led_config_logic[4].blue = 203;
+1271   2      
+1272   2          led_config_logic[5].green = 255;
+1273   2          led_config_logic[5].red = 255;
+1274   2          led_config_logic[5].blue = 255;
+1275   2      
+1276   2          led_config_logic[6].red = 255;
+1277   2      
+1278   2          led_config_logic[7].green = 255;
+1279   2      
+1280   2          led_config_logic[8].green = 201;
+1281   2          led_config_logic[8].blue = 87;
+1282   2      
+1283   2          led_config_logic[9].blue = 230;
+1284   2          led_config_logic[9].green = 224;
+1285   2          led_config_logic[9].red = 176;
+1286   2      
+1287   2          led_config_logic[10].green = 255;
+1288   2      
+1289   2          led_config_logic[11].green = 192;
+1290   2          led_config_logic[11].red = 255;
+1291   2          led_config_logic[11].blue = 203;
+1292   2      
+1293   2          led_config_logic[12].green = 255;
+1294   2          led_config_logic[12].red = 255;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 22  
+
+1295   2          led_config_logic[12].blue = 255;
+1296   2      
+1297   2          led_config_logic[13].red = 255;
+1298   2      
+1299   2          led_config_logic[14].green = 255;
+1300   2      
+1301   2          led_config_logic[15].green = 201;
+1302   2          led_config_logic[15].blue = 87;
+1303   2      
+1304   2          led_config_logic[16].blue = 230;
+1305   2          led_config_logic[16].green = 224;
+1306   2          led_config_logic[16].red = 176;
+1307   2      
+1308   2          led_config_logic[17].green = 255;
+1309   2      
+1310   2          led_config_logic[18].green = 192;
+1311   2          led_config_logic[18].red = 255;
+1312   2          led_config_logic[18].blue = 203;
+1313   2      
+1314   2      
+1315   2      
+1316   2        } else if(cnt_for_cycle_color_chasing_7 == 6) {
+1317   2          // 红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝/蓝/粉红/白/红/绿/翠绿/浅蓝
+1318   2          led_config_logic[0].red = 255;
+1319   2      
+1320   2          led_config_logic[1].green = 255;
+1321   2      
+1322   2          led_config_logic[2].green = 201;
+1323   2          led_config_logic[2].blue = 87;
+1324   2      
+1325   2          led_config_logic[3].blue = 230;
+1326   2          led_config_logic[3].green = 224;
+1327   2          led_config_logic[3].red = 176;
+1328   2      
+1329   2      
+1330   2          led_config_logic[4].green = 255;
+1331   2      
+1332   2          led_config_logic[5].green = 192;
+1333   2          led_config_logic[5].red = 255;
+1334   2          led_config_logic[5].blue = 203;
+1335   2      
+1336   2          led_config_logic[6].green = 255;
+1337   2          led_config_logic[6].red = 255;
+1338   2          led_config_logic[6].blue = 255;
+1339   2      
+1340   2          led_config_logic[7].red = 255;
+1341   2      
+1342   2          led_config_logic[8].green = 255;
+1343   2      
+1344   2          led_config_logic[9].green = 201;
+1345   2          led_config_logic[9].blue = 87;
+1346   2      
+1347   2          led_config_logic[10].blue = 230;
+1348   2          led_config_logic[10].green = 224;
+1349   2          led_config_logic[10].red = 176;
+1350   2      
+1351   2          led_config_logic[11].green = 255;
+1352   2      
+1353   2              led_config_logic[12].green = 192;
+1354   2          led_config_logic[12].red = 255;
+1355   2          led_config_logic[12].blue = 203;
+1356   2      
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 23  
+
+1357   2          led_config_logic[13].green = 255;
+1358   2          led_config_logic[13].red = 255;
+1359   2          led_config_logic[13].blue = 255;
+1360   2      
+1361   2          led_config_logic[14].red = 255;
+1362   2      
+1363   2          led_config_logic[15].green = 255;
+1364   2      
+1365   2          led_config_logic[16].green = 201;
+1366   2          led_config_logic[16].blue = 87;
+1367   2      
+1368   2          led_config_logic[17].blue = 230;
+1369   2          led_config_logic[17].green = 224;
+1370   2          led_config_logic[17].red = 176;
+1371   2      
+1372   2          led_config_logic[18].green = 255;
+1373   2        } 
+1374   1      }
+1375          
+1376          // ------------------------- Display Mode Code 6 --------------------------
+1377          u16 cnt_for_cycle_color_breathe_3 = 0; 
+1378          static void color_breathe_3_driver(void) {
+1379   1          led_config_change();
+1380   1      }
+1381          
+1382          static void color_breathe_3_driver_init() {
+1383   1        u8 i;
+1384   1        for(i = 0; i < 19; i++)
+1385   1        {
+1386   2          led_config_logic[i].red = 1;
+1387   2          led_config_logic[i].green = 0;
+1388   2          led_config_logic[i].blue = 0;
+1389   2        }
+1390   1        led_flicker.cycle_output = ON;
+1391   1        led_flicker.cycle_enable = ENABLE;
+1392   1      
+1393   1        // led_config_logic.lumins = led_config_set.lumins;
+1394   1        led_mode_logic = color_breathe_3;
+1395   1        cnt_for_cycle_color_breathe_3 = 0;
+1396   1      }
+1397          
+1398          static void color_breathe_3_cycle_reached() {
+1399   1        // 红色
+1400   1        u8 i;
+1401   1        ++ cnt_for_cycle_color_breathe_3;
+1402   1        if(cnt_for_cycle_color_breathe_3 >= 1500)
+1403   1          cnt_for_cycle_color_breathe_3 = 0;
+1404   1        if(cnt_for_cycle_color_breathe_3 < 250)
+1405   1        {
+1406   2          for(i = 0; i < 19; i++)
+1407   2          {
+1408   3            led_config_logic[i].red++;
+1409   3            led_config_logic[i].green = 0;
+1410   3            led_config_logic[i].blue = 0;
+1411   3          }
+1412   2      
+1413   2        } else if(cnt_for_cycle_color_breathe_3 < 500 && cnt_for_cycle_color_breathe_3 >= 250){
+1414   2          for(i = 0; i < 19; i++)
+1415   2          {
+1416   3            led_config_logic[i].red --;
+1417   3            led_config_logic[i].green = 0;
+1418   3            led_config_logic[i].blue = 0;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 24  
+
+1419   3          }
+1420   2        }
+1421   1        else if(cnt_for_cycle_color_breathe_3 < 750 && cnt_for_cycle_color_breathe_3 >= 500){
+1422   2          for(i = 0; i < 19; i++)
+1423   2          {
+1424   3            led_config_logic[i].red = 0;
+1425   3            led_config_logic[i].green ++;
+1426   3            led_config_logic[i].blue = 0;
+1427   3          }
+1428   2        }
+1429   1      
+1430   1        else if(cnt_for_cycle_color_breathe_3 < 1000 && cnt_for_cycle_color_breathe_3 >= 750){
+1431   2          for(i = 0; i < 19; i++)
+1432   2          {
+1433   3            led_config_logic[i].red = 0;
+1434   3            led_config_logic[i].green --;
+1435   3            led_config_logic[i].blue = 0;
+1436   3          }
+1437   2        }
+1438   1      
+1439   1        // 蓝色
+1440   1         else if(cnt_for_cycle_color_breathe_3 < 1250 && cnt_for_cycle_color_breathe_3 >= 1000){
+1441   2          for(i = 0; i < 19; i++)
+1442   2          {
+1443   3            led_config_logic[i].red = 0;
+1444   3            led_config_logic[i].green = 0;
+1445   3            led_config_logic[i].blue ++;
+1446   3          }
+1447   2        }  else if(cnt_for_cycle_color_breathe_3 < 1500 && cnt_for_cycle_color_breathe_3 >= 1250){
+1448   2          for(i = 0; i < 19; i++)
+1449   2          {
+1450   3            led_config_logic[i].red = 0;
+1451   3            led_config_logic[i].green = 0;
+1452   3            led_config_logic[i].blue --;
+1453   3          }
+1454   2        }
+1455   1      }
+1456          
+1457          // ------------------------- Display Mode Code 7 --------------------------
+1458          u16 cnt_for_cycle_breathe_7 = 0;
+1459          static void color_breathe_7_driver(void) {
+1460   1          led_config_change();
+1461   1      }
+1462          
+1463          static void color_breathe_7_driver_init() {
+1464   1        u8 i;
+1465   1        for(i = 0; i < 19; i++)
+1466   1        {
+1467   2          led_config_logic[i].red = 1;
+1468   2          led_config_logic[i].green = 1;
+1469   2          led_config_logic[i].blue = 1;
+1470   2        }
+1471   1        led_flicker.cycle_output = ON;
+1472   1        led_flicker.cycle_enable = ENABLE;
+1473   1      
+1474   1        // led_config_logic.lumins = led_config_set.lumins;
+1475   1        led_mode_logic = color_breathe_7;
+1476   1        cnt_for_cycle_breathe_7 = 0;
+1477   1      }
+1478          
+1479          static void color_breathe_7_half_cycle_reached() {
+1480   1          u8 i;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 25  
+
+1481   1        ++ cnt_for_cycle_breathe_7;
+1482   1        if(cnt_for_cycle_breathe_7 >= 1760)
+1483   1        {
+1484   2          cnt_for_cycle_breathe_7 = 0;
+1485   2          for(i = 0; i < 19; i++)
+1486   2          {
+1487   3            led_config_logic[i].red = 0;
+1488   3            led_config_logic[i].green = 0;
+1489   3            led_config_logic[i].blue = 0;
+1490   3          }
+1491   2        }
+1492   1        // 白色
+1493   1        if(cnt_for_cycle_breathe_7 < 250)
+1494   1        {
+1495   2          for(i = 0; i < 19; i++)
+1496   2          {
+1497   3            led_config_logic[i].red++;
+1498   3            led_config_logic[i].green++;
+1499   3            led_config_logic[i].blue++;
+1500   3          }
+1501   2      
+1502   2        } else if(cnt_for_cycle_breathe_7 < 500 && cnt_for_cycle_breathe_7 >= 250){
+1503   2          for(i = 0; i < 19; i++)
+1504   2          {
+1505   3            led_config_logic[i].red --;
+1506   3            led_config_logic[i].green --;
+1507   3            led_config_logic[i].blue --;
+1508   3          }
+1509   2        }
+1510   1        // 红色 
+1511   1        else if(cnt_for_cycle_breathe_7 < 750 && cnt_for_cycle_breathe_7 >= 500) {
+1512   2          for(i = 0; i < 19; i++)
+1513   2          {
+1514   3            led_config_logic[i].red++;
+1515   3            led_config_logic[i].green = 0;
+1516   3            led_config_logic[i].blue = 0;
+1517   3          }
+1518   2      
+1519   2        } else if(cnt_for_cycle_breathe_7 < 1000 && cnt_for_cycle_breathe_7 >= 750){
+1520   2          for(i = 0; i < 19; i++)
+1521   2          {
+1522   3            led_config_logic[i].red --;
+1523   3            led_config_logic[i].green = 0;
+1524   3            led_config_logic[i].blue = 0;
+1525   3          }
+1526   2        } 
+1527   1        // 绿色
+1528   1        else if(cnt_for_cycle_breathe_7 < 1250 && cnt_for_cycle_breathe_7 >= 1000){
+1529   2          for(i = 0; i < 19; i++)
+1530   2          {
+1531   3            led_config_logic[i].red = 0;
+1532   3            led_config_logic[i].green ++;
+1533   3            led_config_logic[i].blue = 0;
+1534   3          }
+1535   2        } else if(cnt_for_cycle_breathe_7 < 1500 && cnt_for_cycle_breathe_7 >= 1250){
+1536   2          for(i = 0; i < 19; i++)
+1537   2          {
+1538   3            led_config_logic[i].red = 0;
+1539   3            led_config_logic[i].green --;
+1540   3            led_config_logic[i].blue = 0;
+1541   3          }
+1542   2        }
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 26  
+
+1543   1        // 蓝色
+1544   1         else if(cnt_for_cycle_breathe_7 < 1250 && cnt_for_cycle_breathe_7 >= 1000){
+1545   2          for(i = 0; i < 19; i++)
+1546   2          {
+1547   3            led_config_logic[i].red = 0;
+1548   3            led_config_logic[i].green = 0;
+1549   3            led_config_logic[i].blue ++;
+1550   3          }
+1551   2        }  else if(cnt_for_cycle_breathe_7 < 1500 && cnt_for_cycle_breathe_7 >= 1250){
+1552   2          for(i = 0; i < 19; i++)
+1553   2          {
+1554   3            led_config_logic[i].red = 0;
+1555   3            led_config_logic[i].green = 0;
+1556   3            led_config_logic[i].blue --;
+1557   3          }
+1558   2        } 
+1559   1        // 浅蓝色
+1560   1         else if(cnt_for_cycle_breathe_7 < 1520 && cnt_for_cycle_breathe_7 >= 1500){
+1561   2          for(i = 0; i < 19; i++)
+1562   2          {
+1563   3            led_config_logic[i].blue = led_config_logic[i].blue + 10;
+1564   3            led_config_logic[i].green = led_config_logic[i].green + 9;
+1565   3            led_config_logic[i].red = led_config_logic[i].red + 6;
+1566   3          }
+1567   2        }  else if(cnt_for_cycle_breathe_7 < 1540 && cnt_for_cycle_breathe_7 >= 1520){
+1568   2          for(i = 0; i < 19; i++)
+1569   2          {
+1570   3            led_config_logic[i].blue -= 10;
+1571   3            led_config_logic[i].green -= 9;
+1572   3            led_config_logic[i].red -= 6;
+1573   3          }
+1574   2        } 
+1575   1      
+1576   1      // 翠绿色
+1577   1         else if(cnt_for_cycle_breathe_7 < 1610 && cnt_for_cycle_breathe_7 >= 1540){
+1578   2          for(i = 0; i < 19; i++)
+1579   2          {
+1580   3                led_config_logic[i].green += 3;
+1581   3            led_config_logic[i].blue += 1;
+1582   3            led_config_logic[i].red = 0;
+1583   3          }
+1584   2        }  else if(cnt_for_cycle_breathe_7 < 1680 && cnt_for_cycle_breathe_7 >= 1610){
+1585   2          for(i = 0; i < 19; i++)
+1586   2          {
+1587   3            led_config_logic[i].green -= 3;
+1588   3            led_config_logic[i].blue -= 1;
+1589   3            led_config_logic[i].red = 0;
+1590   3          }
+1591   2        } 
+1592   1      // 粉红
+1593   1        else if(cnt_for_cycle_breathe_7 < 1720 && cnt_for_cycle_breathe_7 >= 1680){
+1594   2          for(i = 0; i < 19; i++)
+1595   2          {
+1596   3                 led_config_logic[i].green += 4;
+1597   3             led_config_logic[i].red += 5;
+1598   3             led_config_logic[i].blue += 4;
+1599   3          }
+1600   2        }  else if(cnt_for_cycle_breathe_7 < 1760 && cnt_for_cycle_breathe_7 >= 1720){
+1601   2          for(i = 0; i < 19; i++)
+1602   2          {
+1603   3            led_config_logic[i].green -= 4;
+1604   3            led_config_logic[i].red -= 5;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 27  
+
+1605   3            led_config_logic[i].blue -= 4;
+1606   3          }
+1607   2        } 
+1608   1      }
+1609          
+1610          // ------------------------- Display Mode Code 8 --------------------------
+1611          // 白呼吸
+1612          // 白慢慢呼吸变化
+1613          u16 cnt_for_cycle_white_breathe = 0;
+1614          static void white_breathe_driver(void) {
+1615   1          led_config_change();
+1616   1      }
+1617          
+1618          static void white_breathe_driver_init() {
+1619   1        u8 i;
+1620   1        for(i = 0; i < 19; i++)
+1621   1        {
+1622   2          led_config_logic[i].red = 1;
+1623   2          led_config_logic[i].green = 1;
+1624   2          led_config_logic[i].blue = 1;
+1625   2        }
+1626   1        led_flicker.cycle_output = ON;
+1627   1        led_flicker.cycle_enable = ENABLE;
+1628   1        cnt_for_cycle_white_breathe = 0;
+1629   1      
+1630   1        // led_config_logic.lumins = led_config_set.lumins;
+1631   1        led_mode_logic = white_breathe;
+1632   1      }
+1633          
+1634          static void white_breathe_half_cycle_reached() {
+1635   1          u8 i;
+1636   1        ++ cnt_for_cycle_white_breathe;
+1637   1        if(cnt_for_cycle_white_breathe >= 500)
+1638   1          cnt_for_cycle_white_breathe = 0;
+1639   1        if(cnt_for_cycle_white_breathe < 250)
+1640   1        {
+1641   2          for(i = 0; i < 19; i++)
+1642   2          {
+1643   3            led_config_logic[i].red++;
+1644   3            led_config_logic[i].green++;
+1645   3            led_config_logic[i].blue++;
+1646   3          }
+1647   2      
+1648   2        } else if(cnt_for_cycle_white_breathe < 500 && cnt_for_cycle_white_breathe >= 250){
+1649   2          for(i = 0; i < 19; i++)
+1650   2          {
+1651   3            led_config_logic[i].red --;
+1652   3            led_config_logic[i].green --;
+1653   3            led_config_logic[i].blue --;
+1654   3          }
+1655   2        }
+1656   1      }
+1657          // ------------------------- Display Mode Code 9 --------------------------
+1658          // 七种颜色慢慢自动切换
+1659          
+1660          u8 cnt_for_cycle_combination = 0;
+1661          
+1662          static void combination_driver(void) {
+1663   1          led_config_change();
+1664   1      }
+1665          
+1666          static void combination_driver_init() {
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 28  
+
+1667   1        u8 i;
+1668   1        for(i = 0; i < 19; i++)
+1669   1        {
+1670   2          led_config_logic[i].red = 255;
+1671   2          led_config_logic[i].green = 255;
+1672   2          led_config_logic[i].blue = 255;
+1673   2        }
+1674   1        led_flicker.cycle_output = ON;
+1675   1        led_flicker.cycle_enable = ENABLE;
+1676   1      
+1677   1        // led_config_logic.lumins = led_config_set.lumins;
+1678   1        led_mode_logic = combination;
+1679   1      
+1680   1        cnt_for_cycle_combination = 0;
+1681   1      }
+1682          
+1683          static void combination_half_cycle_reached() {
+1684   1        u8 i;
+1685   1        ++ cnt_for_cycle_combination;
+1686   1        if(cnt_for_cycle_combination == 7)
+1687   1          cnt_for_cycle_combination = 0;
+1688   1        for(i = 0; i < 19; i++)
+1689   1        {
+1690   2          led_config_logic[i].red = 0;
+1691   2          led_config_logic[i].green = 0;
+1692   2          led_config_logic[i].blue = 0;
+1693   2        }
+1694   1        if(!cnt_for_cycle_combination){
+1695   2          for(i = 0; i < 19; i++)
+1696   2          {
+1697   3            led_config_logic[i].green = 255;
+1698   3            led_config_logic[i].red = 255;
+1699   3            led_config_logic[i].blue = 255;
+1700   3          }
+1701   2        } else if(cnt_for_cycle_combination == 1){
+1702   2          for(i = 0; i < 19; i++)
+1703   2          {
+1704   3            led_config_logic[i].red = 255;
+1705   3          }
+1706   2      
+1707   2        } else if(cnt_for_cycle_combination == 2){
+1708   2          for(i = 0; i < 19; i++)
+1709   2          {
+1710   3            led_config_logic[i].green = 255;
+1711   3          }
+1712   2      
+1713   2        } else if(cnt_for_cycle_combination == 3){
+1714   2          for(i = 0; i < 19; i++)
+1715   2          {
+1716   3            led_config_logic[i].green = 201;
+1717   3            led_config_logic[i].blue = 87;
+1718   3          }
+1719   2      
+1720   2        } else if(cnt_for_cycle_combination == 4){
+1721   2          for(i = 0; i < 19; i++)
+1722   2          {
+1723   3            led_config_logic[i].blue = 230;
+1724   3            led_config_logic[i].green = 224;
+1725   3            led_config_logic[i].red = 176;
+1726   3          }
+1727   2      
+1728   2        } else if(cnt_for_cycle_combination == 5){
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 29  
+
+1729   2          for(i = 0; i < 19; i++)
+1730   2          {
+1731   3            led_config_logic[i].green = 255;
+1732   3          }
+1733   2      
+1734   2        } else if(cnt_for_cycle_combination == 6){
+1735   2          for(i = 0; i < 19; i++)
+1736   2          {
+1737   3            led_config_logic[i].green = 192;
+1738   3            led_config_logic[i].red = 255;
+1739   3            led_config_logic[i].blue = 203;
+1740   3          }
+1741   2      
+1742   2        }
+1743   1      }
+1744          
+1745          
+1746          // ------------------------- Display Mode Code 10 -------------------------
+1747          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+1748          #define adc_channel 0
+1749          
+1750          void init_adc() {
+1751   1          P1ASF |= 0x01;                      // P1(ch) -> P1 ^ 0
+1752   1          low_at_bit(CLK_DIV, ADRJ);          // ADRJ = 0
+1753   1          ADC_RES = 0;                        // high 8 bit       
+1754   1          ADC_RESL = 0;                       // low 2 bit
+1755   1          ADC_CONTR = ADC_POWER | ADC_SPEED | adc_channel;
+1756   1      }
+1757          
+1758          static u8 GetADCResult()
+1759          {
+1760   1          ADC_CONTR |= ADC_START;
+1761   1          
+1762   1          _nop_();                        
+1763   1          _nop_();
+1764   1          _nop_();
+1765   1          _nop_();
+1766   1          wait_adc_finish();              
+1767   1          ADC_CONTR &= ~ADC_FLAG;         
+1768   1          return ((ADC_RES << 2) | ADC_RESL);                
+1769   1      }
+1770          
+1771          
+1772          // 跟随音乐
+1773          static void music_sensor_driver() {
+1774   1          led_config_change();
+1775   1      }
+1776          
+1777          u8 cnt_for_cycle_music_sensor = 0;
+1778          static void music_sensor_driver_init() {
+1779   1        u8 i;
+1780   1        for(i = 0; i < 19; i++)
+1781   1        {
+1782   2          led_config_logic[i].red = 255;
+1783   2          led_config_logic[i].green = 255;
+1784   2          led_config_logic[i].blue = 255;
+1785   2        }
+1786   1        led_flicker.cycle_output = ON;
+1787   1        led_flicker.cycle_enable = ENABLE;
+1788   1      
+1789   1        led_mode_logic = music_sensor;
+1790   1        cnt_for_cycle_music_sensor = 0;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 30  
+
+1791   1      }
+1792          
+1793          static void music_sensor_half_cycle_reached()
+1794          {
+1795   1        u8 i;
+1796   1        u8 adc_result_diff, adc_result;
+1797   1        u8 adc_result_from_music = GetADCResult();
+1798   1        if(adc_result_from_music > 0x7A)
+1799   1        {
+1800   2          adc_result_diff = adc_result_from_music - 0x7A;
+1801   2          if(adc_result_diff < 3){
+1802   3            adc_result = 50;
+1803   3          }else if(adc_result_diff >= 3 && adc_result_diff < 10){
+1804   3            adc_result = 100;
+1805   3          }else if(adc_result_diff >= 10 && adc_result_diff < 13){
+1806   3            adc_result = 125;
+1807   3          }else if(adc_result_diff >= 13 && adc_result_diff < 17){
+1808   3            adc_result = 150;
+1809   3          }else if(adc_result_diff >= 17 && adc_result_diff < 20){
+1810   3            adc_result = 175;
+1811   3          }else if(adc_result_diff >= 20 && adc_result_diff < 23){
+1812   3            adc_result = 200;
+1813   3          }else if(adc_result_diff >= 23 && adc_result_diff < 26){
+1814   3            adc_result = 225;
+1815   3          }else if(adc_result_diff >= 26){
+1816   3            adc_result = 250;
+1817   3          }
+1818   2        }
+1819   1        else{
+1820   2          adc_result_diff = 0x7A - adc_result_from_music;
+1821   2          if(adc_result_diff < 3){
+1822   3            adc_result = 50;
+1823   3          }else if(adc_result_diff >= 3 && adc_result_diff < 10){
+1824   3            adc_result = 25;
+1825   3          }else if(adc_result_diff >= 10){
+1826   3            adc_result = 0;
+1827   3          }
+1828   2      
+1829   2        } 
+1830   1        ++ cnt_for_cycle_music_sensor;
+1831   1        if(cnt_for_cycle_music_sensor == 7)
+1832   1          cnt_for_cycle_music_sensor = 0;
+1833   1        if(!cnt_for_cycle_music_sensor){
+1834   2          for(i = 0; i < 19; i++)
+1835   2          {
+1836   3            led_config_logic[i].red = adc_result;
+1837   3          }
+1838   2      
+1839   2        } else if(cnt_for_cycle_music_sensor == 1){
+1840   2          for(i = 0; i < 19; i++)
+1841   2          {
+1842   3            led_config_logic[i].green = adc_result;
+1843   3          }
+1844   2        } else if(cnt_for_cycle_music_sensor == 2){
+1845   2          for(i = 0; i < 19; i++)
+1846   2          {
+1847   3            led_config_logic[i].blue = adc_result;
+1848   3          }
+1849   2        }  else if(cnt_for_cycle_music_sensor == 3){
+1850   2          for(i = 0; i < 19; i++)
+1851   2          {
+1852   3            led_config_logic[i].green = adc_result;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           10/10/2016 14:28:55 PAGE 31  
+
+1853   3            led_config_logic[i].blue = adc_result;
+1854   3          }
+1855   2        } else if(cnt_for_cycle_music_sensor == 4){
+1856   2          for(i = 0; i < 19; i++)
+1857   2          {
+1858   3            led_config_logic[i].blue = adc_result;
+1859   3            led_config_logic[i].red = adc_result;
+1860   3          }
+1861   2        } else if(cnt_for_cycle_music_sensor == 5){
+1862   2          for(i = 0; i < 19; i++)
+1863   2          {
+1864   3            led_config_logic[i].red = adc_result;
+1865   3            led_config_logic[i].green = adc_result;
+1866   3          }
+1867   2        }else if(cnt_for_cycle_music_sensor == 6){
+1868   2          for(i = 0; i < 19; i++)
+1869   2          {
+1870   3            led_config_logic[i].red = adc_result;
+1871   3            led_config_logic[i].green = adc_result;
+1872   3            led_config_logic[i].blue = adc_result;
+1873   3          }
+1874   2        }
+1875   1      }
+1876          
+1877          
+1878          void led_syc_color(u8 *param)
+1879          {
+1880   1        u8 i;
+1881   1        led_mode_logic = moon_light;
+1882   1        led_flicker.cycle_output = ON;
+1883   1        led_flicker.cycle_enable = DISABLE;
+1884   1        for(i = 0; i < 19; i++)
+1885   1        {
+1886   2          led_config_logic[i].red = (param[1] - '0') * 100 +  (param[2] - '0') * 10 + (param[3] - '0');
+1887   2          led_config_logic[i].green = (param[4] - '0') * 100 +  (param[5] - '0') * 10 + (param[6] - '0');
+1888   2          led_config_logic[i].blue = (param[7] - '0') * 100 +  (param[8] - '0') * 10 + (param[9] - '0');
+1889   2        }
+1890   1        led_config_change();
+1891   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   8458    ----
+   CONSTANT SIZE    =    451    ----
+   XDATA SIZE       =    170    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

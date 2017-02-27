@@ -1,0 +1,130 @@
+C51 COMPILER V9.52.0.0   SYNC                                                              01/03/2016 16:43:05 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SYNC
+OBJECT MODULE PLACED IN sync.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE sync.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "sync.h"
+   2          #include "task.h"
+   3          #include "share.h"
+   4          #include "utils.h"
+   5          #include "config.h"
+   6          
+   7          #define T200Hz  (MAIN_Fosc / 12 / 200)
+   8          #define Timer0_Reload   (65536UL - T200Hz)  
+   9          
+  10          
+  11          static u8 candidate_reset_signal_recieving = NO;
+  12          static u8 counter_for_second = 200;
+  13          static u8 counter_for_reset = 90;
+  14          static u8 counter_for_second_time_out = COUNTER_PER_SECOND;
+  15          static u8 counter_for_second_driver = COUNTER_PER_SECOND;
+  16          static u8 counter_for_timeout = TIME_OUT_TASK_INTERVAL;
+  17          static u8 counter_for_driver = DRIVER_TASK_INTERVAL;
+  18          
+  19          void reset_all_counters() {
+  20   1          reset_counter_for_second_time_out();
+  21   1          reset_counter_for_second_driver();
+  22   1          reset_counter_for_timeout();
+  23   1          reset_counter_for_driver();
+  24   1      }
+  25          
+  26          
+  27          void reset_counter_for_ble() {
+  28   1          counter_for_second = 200; 
+  29   1          counter_for_reset = 90;
+  30   1      }
+  31          
+  32          void init_system_tick() {
+  33   1          Timer0_12T();
+  34   1          Timer0_AsTimer();
+  35   1          Timer0_16bitAutoReload();
+  36   1          T0_Load(0xD8F0);
+  37   1          Timer0_InterruptEnable();
+  38   1          Timer0_Run();
+  39   1      }
+  40          
+  41          void sync_with_alert() // 2ms @24.000MHz
+  42          {
+  43   1          unsigned char i, j;
+  44   1          i = 47;
+  45   1          j = 174;
+  46   1          do
+  47   1          {
+  48   2              while (--j);
+  49   2          } while (--i);
+  50   1      }
+  51          
+  52          // 
+  53          void tm0_isr() interrupt TIMER0_VECTOR  using 1
+  54          {    
+  55   1          if(!candidate_reset_signal_recieving)
+C51 COMPILER V9.52.0.0   SYNC                                                              01/03/2016 16:43:05 PAGE 2   
+
+  56   1          {
+  57   2              MCU_CS = 1;
+  58   2              if(!--counter_for_second)
+  59   2              {
+  60   3                  counter_for_second = 200;
+  61   3                  if(!--counter_for_reset)
+  62   3                  {
+  63   4                      counter_for_reset = 90;
+  64   4                      candidate_reset_signal_recieving = YES;
+  65   4                      MCU_CS = 0; 
+  66   4                  }
+  67   3              }
+  68   2          }
+  69   1          else
+  70   1              candidate_reset_signal_recieving = NO;
+  71   1      
+  72   1          if (candidate_time_out_signal_recieving)
+  73   1          {
+  74   2              --counter_for_second_time_out;
+  75   2              if (!counter_for_second_time_out)
+  76   2              {
+  77   3                  reset_counter_for_second_time_out();
+  78   3                  --counter_for_timeout;
+  79   3                  if(!counter_for_timeout)
+  80   3                  {
+  81   4                      INT_PROC |= TIME_OUT_DUTY;
+  82   4                      reset_counter_for_timeout();
+  83   4                  }
+  84   3              }
+  85   2          }
+  86   1      
+  87   1          if(candidate_driver_signal_recieving)
+  88   1          {
+  89   2              --counter_for_second_driver;
+  90   2              if(!counter_for_second_driver)
+  91   2              {
+  92   3                  reset_counter_for_second_driver();
+  93   3                  --counter_for_driver;
+  94   3                  if(!counter_for_driver)
+  95   3                  {
+  96   4                      INT_PROC |= DRIVER_DUTY;
+  97   4                      reset_counter_for_driver();
+  98   4                  } 
+  99   3              }
+ 100   2          }
+ 101   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    198    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      7    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

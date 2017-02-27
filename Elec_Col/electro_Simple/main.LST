@@ -1,0 +1,103 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              12/27/2016 13:09:28 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "stc15wxxxx.h"
+   2          #include "tm1727.h"
+   3          #include "jl17467pqw.h"
+   4          #include "share.h"
+   5          #include "sync.h"
+   6          #include "task.h"
+   7          #include "light.h"
+   8          #include "adc.h"
+   9          #include "time.h"
+  10          #include "control.h"
+  11          #include "beep.h"
+  12          #include "utils.h"
+  13          
+  14          void main()
+  15          {
+  16   1        display_clean();
+  17   1        
+  18   1        EA = 0;
+  19   1      
+  20   1        jt17467pqw_set_power_linked(1);
+  21   1      
+  22   1        time_init();
+  23   1      
+  24   1        init_adc();
+  25   1      
+  26   1        control_init();
+  27   1      
+  28   1        init_key_io();
+  29   1      
+  30   1        init_system_tick();
+  31   1      
+  32   1      
+  33   1        init_beep_io();
+  34   1      
+  35   1        speak_init_params();
+  36   1      
+  37   1        init_speed_driver();
+  38   1      
+  39   1        EA =1;
+  40   1        
+  41   1          while(1)
+  42   1          {
+  43   2          reset_watch_dog();
+  44   2            // 10ms 刷新一次按键
+  45   2            if (INT_PROC & KEY_SCAN_DUTY) {
+  46   3              // detect_buzzer_io();
+  47   3              key_scan_task();
+  48   3              temperature_sample();
+  49   3              battery_sample();
+  50   3                    INT_PROC &= ~KEY_SCAN_DUTY;
+  51   3                    continue;
+  52   3                }
+  53   2                // 1s同步一次时间
+  54   2              if (INT_PROC & TIME_SYNC_DUTY) {
+  55   3              time_sync();
+C51 COMPILER V9.52.0.0   MAIN                                                              12/27/2016 13:09:28 PAGE 2   
+
+  56   3              INT_PROC &= ~TIME_SYNC_DUTY;
+  57   3                    continue;
+  58   3                }
+  59   2      
+  60   2      
+  61   2                // 20ms 刷新一次屏幕
+  62   2              if (INT_PROC & LCD_DISPLAY_DUTY) {
+  63   3              display(RAM_START_ADDRESS,display_code);
+  64   3                    INT_PROC &= ~LCD_DISPLAY_DUTY;
+  65   3                    continue;
+  66   3                }
+  67   2      
+  68   2                // 500ms计算一次速度、温度、电池电压
+  69   2                if(INT_PROC & ADC_DUTY){
+  70   3                  temperature_detected();
+  71   3              battery_detected();
+  72   3              speed_cal_display();
+  73   3                  INT_PROC &= ~ADC_DUTY;
+  74   3                  continue;
+  75   3                }
+  76   2              }
+  77   1      
+  78   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    142    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

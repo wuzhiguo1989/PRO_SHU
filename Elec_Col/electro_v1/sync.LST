@@ -1,0 +1,303 @@
+C51 COMPILER V9.52.0.0   SYNC                                                              03/03/2016 19:04:48 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SYNC
+OBJECT MODULE PLACED IN sync.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE sync.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "sync.h"
+   2          #include "task.h"
+   3          #include "share.h"
+   4          #include "jl17467pqw.h"
+   5          #include "control.h"
+   6          #include "beep.h"
+   7          #include "signal.h"
+   8          #include "light.h"
+   9           
+  10          u8 lcd_task_interval = LCD_DISPLAY_TASK_INTERVAL;
+  11          u8 second_task_interval = COUNTER_PER_SECOND;
+  12          u8 speed_cal_interval = SPEED_TASK_INTERVAL;
+  13          u8 counter_per_second_for_time = 2;
+  14          u16 counter_for_2s = COUNTER_FOR_SECOND_2S; // count_for_2s的变量是控制震动报警开始的时间�
+             -� 分为2s 和 10s
+  15          u16 counter_for_10s = COUNTER_FOR_SECOND_10S; 
+  16          u16 int0_counter = 0;
+  17          u8 flag = 0;
+  18          
+  19          void reset_2s_counter()
+  20          {
+  21   1          counter_for_2s = COUNTER_FOR_SECOND_2S;
+  22   1      }
+  23          
+  24          void reset_2s_counter_for_key()
+  25          {
+  26   1          counter_for_2s = COUNTER_FOR_SECOND_10S;
+  27   1      }
+  28          
+  29          void reset_10s_counter()
+  30          { 
+  31   1          counter_for_10s = COUNTER_FOR_SECOND_10S;
+  32   1      }
+  33          
+  34          void reset_time_counter()
+  35          {
+  36   1          second_task_interval = COUNTER_PER_SECOND;
+  37   1          counter_per_second_for_time = 2;
+  38   1      }
+  39          
+  40          
+  41          void init_system_tick() {
+  42   1          Timer0_12T();
+  43   1          Timer0_AsTimer();
+  44   1          Timer0_16bitAutoReload();
+  45   1          T0_Load(0xB1E0);
+  46   1          Timer0_InterruptEnable();
+  47   1          Timer0_Run();
+  48   1      }
+  49          
+  50          void init_system_tick1() {
+  51   1          Timer1_12T();
+  52   1          Timer1_AsTimer();
+  53   1          Timer1_16bitAutoReload();
+  54   1          T1_Load(0xF830);
+C51 COMPILER V9.52.0.0   SYNC                                                              03/03/2016 19:04:48 PAGE 2   
+
+  55   1          Timer1_InterruptEnable();
+  56   1          // Timer1_Stop();
+  57   1          Timer1_InterruptFirst();
+  58   1          Timer1_Run();
+  59   1      }
+  60          
+  61          void init_speed_driver() {
+  62   1          INT0 = 1;
+  63   1          IT0 = 1;                    //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  64   1          EX0 = ENABLE;                
+  65   1      }
+  66          
+  67          
+  68          // 震动报警中断
+  69          // 下降沿有效
+  70          void exint2() interrupt 10          //INT2中断入口
+  71          {   
+  72   1      //    INT_CLKO &= 0xEF;
+  73   1          if(!speak_mode_set)
+  74   1          {
+  75   2              state_enter_trans(SHOCK_SIGNAL);
+  76   2              // 震动以后切换报警时间
+  77   2              first_alert = 1;
+  78   2          }                           
+  79   1      }
+  80          
+  81          
+  82          // 10ms 定时中断
+  83          void tm0_isr() interrupt TIMER0_VECTOR  using 1
+  84          {    
+  85   1          if(state_current == NORMAL_STATE || state_current == KEY_NORMAL_STATE)
+  86   1          {
+  87   2              // 10ms 灯
+  88   2              INT_PROC |= KEY_SCAN_DUTY;
+  89   2      
+  90   2              // 500ms 刷新一次时间
+  91   2              if(!--second_task_interval)
+  92   2              {
+  93   3                  INT_PROC |= TIME_SYNC_DUTY;
+  94   3                  // 计时图标闪烁
+  95   3                  time_colon_icon = ~time_colon_icon;
+  96   3      
+  97   3                  // 计算时间
+  98   3                  if(!--counter_per_second_for_time)
+  99   3                  {
+ 100   4                      if(local_time.second++ == 59)
+ 101   4                      {
+ 102   5                          local_time.second = 0;
+ 103   5                          if(local_time.minute++ == 59)
+ 104   5                          {
+ 105   6                              local_time.minute = 0;
+ 106   6                              local_time.hour ++;
+ 107   6                          }
+ 108   5                      }
+ 109   4                      counter_per_second_for_time = 2;
+ 110   4                  }
+ 111   3                  second_task_interval = COUNTER_PER_SECOND;
+ 112   3              }
+ 113   2      
+ 114   2              // 20ms刷新LCD
+ 115   2              if (!--lcd_task_interval) {
+ 116   3                  INT_PROC |= LCD_DISPLAY_DUTY;
+C51 COMPILER V9.52.0.0   SYNC                                                              03/03/2016 19:04:48 PAGE 3   
+
+ 117   3                  lcd_task_interval = LCD_DISPLAY_TASK_INTERVAL; 
+ 118   3              }
+ 119   2      
+ 120   2      
+ 121   2              //  500ms获取一次速度、刷新一次温度和电压
+ 122   2              if(!--speed_cal_interval)
+ 123   2              {
+ 124   3                  INT_PROC |= ADC_DUTY;
+ 125   3                  speed_cal_interval = SPEED_TASK_INTERVAL;
+ 126   3              }
+ 127   2          }
+ 128   1      
+ 129   1          
+ 130   1          // 首次震动10s 计时
+ 131   1          if(enter_lock_state_15s)
+ 132   1          {
+ 133   2              if(!--counter_for_10s)
+ 134   2              {
+ 135   3                  // 震动报警模式变换
+ 136   3                  reset_10s_counter();
+ 137   3                  enter_lock_state_15s = NO;
+ 138   3                  first_alert = 0;
+ 139   3              }
+ 140   2      
+ 141   2          }
+ 142   1      
+ 143   1          //铃声响一次1s内不再响应
+ 144   1          if(enter_lock_state_2s)
+ 145   1          {
+ 146   2              if(!--counter_for_2s)
+ 147   2              {
+ 148   3                  INT_CLKO |= 0x10;
+ 149   3                  reset_2s_counter();
+ 150   3                  enter_lock_state_2s = NO;
+ 151   3              }
+ 152   2          }
+ 153   1      
+ 154   1              // 断续发声(四个按键的时序声音)
+ 155   1          if(speak_mode_set & 0x3f)
+ 156   1          {
+ 157   2              if(!--speak_time)
+ 158   2              {    
+ 159   3                  // 解锁键声音   
+ 160   3                  if(speak_mode_set == 0x01){
+ 161   4                      MUTE = ~MUTE;
+ 162   4                      interval ++;
+ 163   4                      // 换频率
+ 164   4                      if(interval == 4)
+ 165   4                          speak_mode = unlockmode;
+ 166   4                      speak_time = speak_time_interval[speak_mode - 1];
+ 167   4                      // 一个周期到
+ 168   4                      if(interval == 5)
+ 169   4                      {
+ 170   5                          speak_mode_set &= ~0x003f;
+ 171   5                          state_current = NORMAL_STATE;
+ 172   5                      }
+ 173   4                  }
+ 174   3                  // 4s报警 
+ 175   3                  else if(speak_mode_set == 0x08){
+ 176   4                      if(speak_mode == firstalertmode)
+ 177   4                          speak_mode = secondalertmode;
+ 178   4                      else
+C51 COMPILER V9.52.0.0   SYNC                                                              03/03/2016 19:04:48 PAGE 4   
+
+ 179   4                          speak_mode = firstalertmode;
+ 180   4                      interval ++;
+ 181   4                      speak_time = speak_time_interval[speak_mode - 1];
+ 182   4                      // 一个周期到
+ 183   4                      if(interval == 50)
+ 184   4                      {
+ 185   5                          MUTE = ~MUTE;
+ 186   5                          state_current = LOCK_STATE;
+ 187   5                          reset_10s_counter();
+ 188   5                          enter_lock_state_15s = YES;
+ 189   5                          speak_mode_set &= ~0x003f;
+ 190   5                          wait_for_alert();
+ 191   5                      }
+ 192   4                  }
+ 193   3      
+ 194   3                  // 15秒报警 
+ 195   3                  else if(speak_mode_set == 0x10) {
+ 196   4                      if(speak_mode == firstalertmode)
+ 197   4                          speak_mode = secondalertmode;
+ 198   4                      else
+ 199   4                          speak_mode = firstalertmode;
+ 200   4                      interval ++;
+ 201   4                      // 一个周期到
+ 202   4                      speak_time = speak_time_interval[speak_mode - 1];
+ 203   4                      if(interval == 200)
+ 204   4                      {
+ 205   5                          MUTE = ~MUTE;
+ 206   5                          state_current = LOCK_STATE;
+ 207   5                          reset_10s_counter();
+ 208   5                          enter_lock_state_15s = YES;
+ 209   5                          speak_mode_set &= ~0x003f;
+ 210   5                          wait_for_alert();
+ 211   5                      }
+ 212   4                  }
+ 213   3      
+ 214   3                  // 锁定 
+ 215   3                  else if (speak_mode_set == 0x04){
+ 216   4                      if(speak_mode == firstalertmode)
+ 217   4                          speak_mode = secondalertmode;
+ 218   4                      else
+ 219   4                          speak_mode = firstalertmode;
+ 220   4                      interval ++;
+ 221   4                      // 一个周期到
+ 222   4                      speak_time = speak_time_interval[speak_mode - 1];
+ 223   4                      if(interval == 6)
+ 224   4                      {
+ 225   5                          MUTE = ~MUTE;
+ 226   5                          speak_mode_set &= ~0x003f;
+ 227   5                          wait_for_alert();
+ 228   5                      }
+ 229   4                  }
+ 230   3      
+ 231   3                  else  
+ 232   3                  {
+ 233   4                      speak_time = speak_time_interval[speak_mode - 1];
+ 234   4                      MUTE = ~MUTE;
+ 235   4                      speak_mode_set &= ~0x003f;
+ 236   4                      wait_for_alert();
+ 237   4                  }
+ 238   3      
+ 239   3                  light_follow_speak();
+ 240   3              }
+C51 COMPILER V9.52.0.0   SYNC                                                              03/03/2016 19:04:48 PAGE 5   
+
+ 241   2          }
+ 242   1      
+ 243   1      }
+ 244          
+ 245          void tm1_isr() interrupt TIMER1_VECTOR  using 2
+ 246          {
+ 247   1          int0_counter ++;
+ 248   1          if(int0_counter == 1000)
+ 249   1          {
+ 250   2              speed_counter = 0;
+ 251   2              int0_counter = 0;
+ 252   2              flag = 1;
+ 253   2              INT_PROC |= SPEED_CAL_DUTY;
+ 254   2          }
+ 255   1      }
+ 256          
+ 257          //控制信号中断(上升沿和下降沿中断)
+ 258          //中断0
+ 259          void exint0() interrupt INT0_VECTOR  using 3 //INT1中断入口
+ 260          {
+ 261   1          if(state_current == NORMAL_STATE || state_current == KEY_NORMAL_STATE)
+ 262   1          { 
+ 263   2              speed_counter = int0_counter;
+ 264   2              int0_counter = 0;
+ 265   2              if(!flag)
+ 266   2                  INT_PROC |= SPEED_CAL_DUTY;
+ 267   2              else
+ 268   2                  flag = 0;
+ 269   2          }
+ 270   1      }
+ 271          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    661    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     11    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,248 @@
+C51 COMPILER V9.52.0.0   UART                                                              11/08/2016 20:38:39 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN .\list\uart.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE uart.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\uart.lst) TABS(2) OBJECT(.\list
+                    -\uart.obj)
+
+line level    source
+
+   1          #include "uart.h"
+   2          #include "task.h"
+   3          #include <string.h>
+   4          #include <ctype.h>
+   5          
+   6          COMx_context xdata COM1, COM2;
+   7          COMx_context xdata *COM[MAX_UART_SUPPORT];
+   8          
+   9          char xdata TX1_Buffer[COM_TX1_Length];  
+  10          char xdata RX1_Buffer[COM_RX1_Length];  
+  11          char xdata TX2_Buffer[COM_TX2_Length];  
+  12          char xdata RX2_Buffer[COM_RX2_Length];   
+  13            
+  14          
+  15          static char TX1_write2buff(char dat);
+  16          static char TX2_write2buff(char dat);
+  17          
+  18          static void context_init(COMx_context xdata *c) {
+  19   1        c->TX_read = 0;
+  20   1        c->TX_write = 0;
+  21   1        c->B_TX_busy = 0;
+  22   1        c->RX_Cnt = 0;
+  23   1        c->RX_TimeOut = 0;
+  24   1        c->B_RX_OK = 0;
+  25   1      }
+  26          
+  27          static bool share_timer2_init_once_token = FALSE;
+  28          
+  29          // 115200的波特率
+  30          static void uart_share_timer2() {
+  31   1        if (!share_timer2_init_once_token) {
+  32   2          Timer2_Stop();              //Timer stop
+  33   2            Timer2_AsTimer();           //Timer2 set As Timer
+  34   2            Timer2_1T() ;               //Timer2 set as 1T mode
+  35   2            Timer2_Load(65536ul - (MAIN_Fosc / 4) / 115200ul);
+  36   2            Timer2_InterruptDisable();  //禁止中断    
+  37   2            Timer2_Run();               //Timer run enable
+  38   2            share_timer2_init_once_token = TRUE;
+  39   2        }
+  40   1      }
+  41          
+  42          void uart_init() {
+  43   1      
+  44   1        // COM1
+  45   1        S1_8bit();
+  46   1        S1_BRT_UseTimer2();
+  47   1          S1_USE_P30P31();
+  48   1          
+  49   1          S1_Int_Enable();
+  50   1          S1_RX_Enable();
+  51   1          COM1.id = COM1_ID;
+  52   1          memset(TX1_Buffer, 0, COM_TX1_Length);
+  53   1          memset(RX1_Buffer, 0, COM_RX1_Length);
+  54   1          context_init(&COM1);
+C51 COMPILER V9.52.0.0   UART                                                              11/08/2016 20:38:39 PAGE 2   
+
+  55   1          COM[COM1_ID] = &COM1;
+  56   1          
+  57   1          // COM2
+  58   1        S2_8bit();
+  59   1          S2_USE_P10P11();
+  60   1          S2_MODE0();
+  61   1        S2_RX_Enable();
+  62   1          S2_Int_Enable();    
+  63   1          SET_TI2();
+  64   1          COM2.id = COM2_ID;
+  65   1          memset(TX2_Buffer, 0, COM_TX2_Length);
+  66   1          memset(RX2_Buffer, 0, COM_RX2_Length);
+  67   1          context_init(&COM2);
+  68   1          COM[COM2_ID] = &COM2;
+  69   1        uart_share_timer2();
+  70   1      }
+  71          
+  72          // Handle usart trigger: TimeOut(usart command gap) count down to zero
+  73          bool UART_RX_Block(COMx_context xdata *context) {
+  74   1          if (!context->RX_Cnt)                   // no data recieved
+  75   1              return false;
+  76   1      
+  77   1          if (context->RX_TimeOut && !--context->RX_TimeOut)    
+  78   1              context->B_RX_OK = true;
+  79   1      
+  80   1          if (!context->RX_TimeOut)
+  81   1              context->B_RX_OK = true;
+  82   1      
+  83   1          return context->B_RX_OK;
+  84   1      }
+  85          
+  86          void UART_Finish_Rx(COMx_context xdata *context) {
+  87   1          context->RX_Cnt = 0;
+  88   1          context->B_RX_OK = false;
+  89   1      }
+  90          
+  91          // Forward your UART TX -> target RX
+  92          void TX_forward(COMx_context xdata *target) {
+  93   1        u8 i;
+  94   1      
+  95   1        for (i=0; i<COM1.RX_Cnt; i++) {
+  96   2          TX_write2buff(target, RX1_Buffer[i]);
+  97   2      #ifdef TX_FW_ECHO
+  98   2          TX_write2buff(&COM1, RX1_Buffer[i]);
+  99   2      #endif
+ 100   2        }
+ 101   1          
+ 102   1      #ifdef TX_COMPENSATE_CRLF
+ 103   1        if (RX1_Buffer[COM1.RX_Cnt - 1] != '\n') {
+ 104   2          TX_write2buff(target, '\r');
+ 105   2          TX_write2buff(target, '\n');
+ 106   2          TX_write2buff(&COM1, '\r');
+ 107   2          TX_write2buff(&COM1, '\n');
+ 108   2        }
+ 109   1      #endif
+ 110   1      }
+ 111          
+ 112          char TX_write2buff(COMx_context xdata *context, char c) {
+ 113   1        if(context->id == COM1_ID)  return TX1_write2buff(c);
+ 114   1        if(context->id == COM2_ID)  return TX2_write2buff(c);
+ 115   1        return c;
+ 116   1      }
+C51 COMPILER V9.52.0.0   UART                                                              11/08/2016 20:38:39 PAGE 3   
+
+ 117          
+ 118          void TX_str2buff(COMx_context xdata *context, char *str, int len) {
+ 119   1        int i;
+ 120   1      #ifdef DEBUG_MSG
+ 121   1        TX_write2buff(COM[DEBUG_UART_ID], context->id + '1');
+ 122   1        TX_write2buff(COM[DEBUG_UART_ID], ':');
+ 123   1      #endif  
+ 124   1        for (i=0; i<len; ++i) {
+ 125   2          TX_write2buff(context, str[i]);
+ 126   2      #ifdef DEBUG_MSG
+ 127   2          TX_write2buff(COM[DEBUG_UART_ID], str[i]);
+ 128   2      #endif  
+ 129   2        }
+ 130   1      }
+ 131          
+ 132          static char TX1_write2buff(char c)  
+ 133          {
+ 134   1        TX1_Buffer[COM1.TX_write] = c;  
+ 135   1        if(++COM1.TX_write >= COM_TX1_Length) 
+ 136   1          COM1.TX_write = 0;
+ 137   1      
+ 138   1        if(COM1.B_TX_busy == 0)   
+ 139   1        {  
+ 140   2          COM1.B_TX_busy = 1;   
+ 141   2          SET_TI1();          
+ 142   2        }
+ 143   1        return c;
+ 144   1      }
+ 145          
+ 146          static char TX2_write2buff(char c)  
+ 147          {
+ 148   1        TX2_Buffer[COM2.TX_write] = c;  
+ 149   1        if(++COM2.TX_write >= COM_TX2_Length) 
+ 150   1          COM2.TX_write = 0;
+ 151   1      
+ 152   1        if(COM2.B_TX_busy == 0)   
+ 153   1        {  
+ 154   2          COM2.B_TX_busy = 1;   
+ 155   2          SET_TI2();          
+ 156   2        }
+ 157   1        return c;
+ 158   1      }
+ 159          
+ 160          
+ 161          
+ 162          void UART1_int (void) interrupt UART1_VECTOR using 2
+ 163          {
+ 164   1        if(RI)
+ 165   1        {
+ 166   2          CLR_RI1();
+ 167   2          if(COM1.B_RX_OK == 0)
+ 168   2          {
+ 169   3            if(COM1.RX_Cnt >= COM_RX1_Length) COM1.RX_Cnt = 0;
+ 170   3            RX1_Buffer[COM1.RX_Cnt++] = SBUF;
+ 171   3            COM1.RX_TimeOut = TimeOutSet1;
+ 172   3          }
+ 173   2        }
+ 174   1      
+ 175   1        if(TI)
+ 176   1        {
+ 177   2          CLR_TI1();
+ 178   2          if(COM1.TX_read != COM1.TX_write)
+C51 COMPILER V9.52.0.0   UART                                                              11/08/2016 20:38:39 PAGE 4   
+
+ 179   2          {
+ 180   3            SBUF = TX1_Buffer[COM1.TX_read];
+ 181   3            if(++COM1.TX_read >= COM_TX1_Length)    COM1.TX_read = 0;
+ 182   3          }
+ 183   2          else  COM1.B_TX_busy = 0;
+ 184   2        }
+ 185   1      }
+ 186          
+ 187          
+ 188          void UART2_int (void) interrupt UART2_VECTOR
+ 189          {
+ 190   1          if((S2CON & 1) != 0)
+ 191   1          {
+ 192   2          if(COM2.B_RX_OK == 0)
+ 193   2          {
+ 194   3            if(COM2.RX_Cnt >= COM_RX2_Length)
+ 195   3              COM2.RX_Cnt = 0;
+ 196   3            RX2_Buffer[COM2.RX_Cnt++] = S2BUF;
+ 197   3            COM2.RX_TimeOut = TimeOutSet2;
+ 198   3          }
+ 199   2              S2CON &= ~1;    //Clear Rx flag
+ 200   2          }
+ 201   1      
+ 202   1          if((S2CON & 2) != 0)
+ 203   1          {
+ 204   2              S2CON &= ~2;    //Clear Tx flag
+ 205   2          if(COM2.TX_read != COM2.TX_write)
+ 206   2          {
+ 207   3            S2BUF = TX2_Buffer[COM2.TX_read];
+ 208   3            if(++COM2.TX_read >= COM_TX2_Length)    COM2.TX_read = 0;
+ 209   3          }
+ 210   2          else  COM2.B_TX_busy = 0;
+ 211   2          }
+ 212   1      }
+ 213          
+ 214          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1032    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    596      15
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

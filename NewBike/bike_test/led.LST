@@ -1,0 +1,12 @@
+C51 COMPILER V9.52.0.0   LED                                                               09/18/2016 16:29:59 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LED
+OBJECT MODULE PLACED IN led.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE led.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+*** ERROR C318 OF led.c: can't open file 'led.c'
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  1 ERROR(S)

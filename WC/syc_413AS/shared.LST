@@ -1,0 +1,39 @@
+C51 COMPILER V9.52.0.0   SHARED                                                            09/07/2015 13:09:21 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SHARED
+OBJECT MODULE PLACED IN shared.OBJ
+COMPILER INVOKED BY: F:\Keil\C51\BIN\C51.EXE shared.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "shared.h"
+   2          
+   3          // Default is STEADY
+   4          volatile disp_t display_mode_set = steady_burn, display_mode_logic = steady_burn;
+   5          // Default is 100, logic is for output, driver change _prepared
+   6          volatile u8 cycle_output[2] = {ON, ON};
+   7          // 5ms counters
+   8          volatile u8 counter_for_cycle = 0;
+   9          volatile bit cycle_finished = 0;
+  10          volatile u32 time_counter = 0;
+  11          // SYSTEM ALL INT MASK
+  12          volatile u8 INT_PROC = 0; 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   ----    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     10    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

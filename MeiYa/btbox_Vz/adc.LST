@@ -1,0 +1,284 @@
+C51 COMPILER V9.52.0.0   ADC                                                               12/02/2016 16:34:31 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE ADC
+OBJECT MODULE PLACED IN adc.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE adc.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "adc.h"
+   2          #include "intrins.h"
+   3          #include "share.h"
+   4          #include "key.h"
+   5          #include "utils.h"
+   6          #include "74hc595.h"
+   7          #include "sync.h"
+   8          
+   9          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+  10          #define adc_vbg_channel   9
+  11          #define adc_down_channel  4
+  12          #define adc_up_channel    3
+  13          #define adc_lock_channel  6
+  14          #define adc_detect_channel 7
+  15          
+  16          #define ADC_CAL_COUNT    16
+  17          #define ADC_KEY_INPUT    18
+  18          
+  19          u8 xdata index_adc_up = 0; 
+  20          u8 xdata index_adc_down = 0; 
+  21          u8 xdata index_adc_lock = 0;
+  22          
+  23          u16 xdata key_up_adc[ADC_CAL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  24          u16 xdata key_down_adc[ADC_CAL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; 
+  25          u16 xdata key_lock_adc[ADC_CAL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  26          
+  27          u16 xdata key_up_sum, key_down_sum, key_lock_sum;
+  28          u16 xdata key_up_avg, key_down_avg, key_lock_avg;
+  29          u16 xdata key_up_now, key_down_now, key_lock_now;
+  30          
+  31          static u16 GetADCResult(u8 channel)
+  32          {
+  33   1        P1ASF &= ~0xFF;
+  34   1        if(channel == 9)
+  35   1          P1ASF |= 0;
+  36   1        else 
+  37   1          P1ASF |= (1 << channel);
+  38   1        ADC_RES = 0;
+  39   1        ADC_RESL = 0;
+  40   1        // 选通道需要清除之前的通道
+  41   1        ADC_CONTR &= 0xF8;
+  42   1        ADC_CONTR = ADC_POWER | ADC_SPEED;
+  43   1        _nop_();                        
+  44   1        _nop_();
+  45   1        if(channel == 9)
+  46   1          ADC_CONTR |= 0;
+  47   1        else 
+  48   1          ADC_CONTR |= channel;
+  49   1        ADC_CONTR |= ADC_START;
+  50   1        _nop_();                        
+  51   1        _nop_();
+  52   1        _nop_();
+  53   1        _nop_();
+  54   1        wait_adc_finish();              
+  55   1        ADC_CONTR &= ~ADC_FLAG;         
+C51 COMPILER V9.52.0.0   ADC                                                               12/02/2016 16:34:31 PAGE 2   
+
+  56   1        return ((ADC_RES << 2) | ADC_RESL);
+  57   1      }
+  58          
+  59          void init_adc()
+  60          {
+  61   1          u8 i;
+  62   1          key_up_avg = key_down_avg = key_lock_avg = 0;
+  63   1          key_up_sum = key_down_sum = key_lock_sum = 0;
+  64   1          for(i = 0; i < ADC_CAL_COUNT; i++)
+  65   1          {
+  66   2            key_up_adc[i] = 0;
+  67   2            key_down_adc[i] = 0;
+  68   2            key_lock_adc[i] = 0;
+  69   2          };
+  70   1      }
+  71          
+  72          
+  73          u8 ADC_KeyScan_G() {
+  74   1          u8 key = 0xFF;
+  75   1          u8 key_up = 0;
+  76   1          u8 key_down = 0;
+  77   1          u8 key_lock = 0;
+  78   1          key_up_now = GetADCResult(adc_up_channel);
+  79   1          if(key_up_now < key_up_avg && key_up_avg - key_up_now > ADC_KEY_INPUT)
+  80   1            key_up = 0;
+  81   1          else
+  82   1          {
+  83   2            key_up_sum += key_up_now;
+  84   2            key_up_sum -= key_up_adc[index_adc_up];
+  85   2            key_up_adc[index_adc_up] = key_up_now;
+  86   2            key_up_avg = key_up_sum >> 4;
+  87   2            index_adc_up ++;
+  88   2            if(index_adc_up == ADC_CAL_COUNT)
+  89   2              index_adc_up = 0;
+  90   2            key_up = 1;
+  91   2          }
+  92   1      
+  93   1          key = key << 1 | key_up;
+  94   1      
+  95   1          key_down_now = GetADCResult(adc_down_channel);
+  96   1          if(key_down_now < key_down_avg && key_down_avg - key_down_now > ADC_KEY_INPUT)
+  97   1            key_down = 0;
+  98   1          else
+  99   1          {
+ 100   2            key_down_sum += key_down_now;
+ 101   2            key_down_sum -= key_down_adc[index_adc_down];
+ 102   2            key_down_adc[index_adc_down] = key_down_now;
+ 103   2            key_down_avg = key_down_sum >> 4;
+ 104   2            index_adc_down ++;
+ 105   2            if(index_adc_down == ADC_CAL_COUNT)
+ 106   2              index_adc_down = 0;
+ 107   2            key_down = 1;
+ 108   2          }
+ 109   1      
+ 110   1          key = key << 1 | key_down;
+ 111   1      
+ 112   1      
+ 113   1          // key_lock_now = GetADCResult(adc_lock_channel);
+ 114   1          // if(key_lock_now < key_lock_avg && key_lock_avg - key_lock_now >  ADC_KEY_INPUT)
+ 115   1             // key_lock = 0;
+ 116   1          // else
+ 117   1          // {
+C51 COMPILER V9.52.0.0   ADC                                                               12/02/2016 16:34:31 PAGE 3   
+
+ 118   1          //   key_lock_sum += key_lock_now;
+ 119   1          //   key_lock_sum -= key_lock_adc[index_adc_lock];
+ 120   1          //   key_lock_adc[index_adc_lock] = key_lock_now;
+ 121   1          //   key_lock_avg = key_lock_sum >> 4;
+ 122   1          //   index_adc_lock ++;
+ 123   1          //   if(index_adc_lock == ADC_CAL_COUNT)
+ 124   1          //     index_adc_lock = 0;
+ 125   1          //   key_lock = 1;
+ 126   1          // }
+ 127   1      
+ 128   1          // key = key << 1 | key_lock;
+ 129   1      
+ 130   1          return key;
+ 131   1      }
+ 132          
+ 133          
+ 134          static code u8 const power_level_count[5] = {27, 32, 35, 38, 41};
+ 135          
+ 136          void power_level_cal()
+ 137          {
+ 138   1        u16 battery = 0; 
+ 139   1        u16 adc_value = 0;
+ 140   1        //读出基准电压
+ 141   1        // for(i = 0; i < 16; i++)
+ 142   1        adc_value += GetADCResult(adc_vbg_channel);
+ 143   1        // adc_value = adc_value >> 4;
+ 144   1        battery = 12992 / adc_value;
+ 145   1        // battery = adc_value;
+ 146   1        if(battery < power_level_count[0]){
+ 147   2          power_level = 0;
+ 148   2        } else if(battery >= power_level_count[0] && battery < power_level_count[1]){
+ 149   2          power_level = 1;
+ 150   2        } else if(battery >= power_level_count[1] && battery < power_level_count[2]){
+ 151   2          power_level = 2;
+ 152   2        } else if(battery >= power_level_count[2] && battery < power_level_count[3]){
+ 153   2          power_level = 3;
+ 154   2        } else if(battery >= power_level_count[3] && battery < power_level_count[4]){
+ 155   2          power_level = 4;
+ 156   2        } else if(battery >= power_level_count[4]){
+ 157   2          power_level = 5;
+ 158   2        }
+ 159   1        if(!CHG)
+ 160   1          power_level = power_level - 1;
+ 161   1      }
+ 162          
+ 163          
+ 164          #define ADC_DETECT_EXIST 15
+ 165          #define ADC_VCC 1024
+ 166          
+ 167          u16 Cnt_exit = 0;
+ 168          u8 adc_now_exit = 1;
+ 169          u8 adc_pre_exit = 1;
+ 170          
+ 171          #define TIME_CNT_EXIT 1000
+ 172          
+ 173          void reset_cnt_exit()
+ 174          {
+ 175   1          Cnt_exit = 0;
+ 176   1      }
+ 177          
+ 178          u16 Cnt_exit_display()
+ 179          {
+C51 COMPILER V9.52.0.0   ADC                                                               12/02/2016 16:34:31 PAGE 4   
+
+ 180   1         return key_up_now;
+ 181   1      }
+ 182          
+ 183          void start_work_detect()
+ 184          {
+ 185   1        u16 adc_vbg_value, adc_detect_value; 
+ 186   1        adc_vbg_value = adc_detect_value = 0;
+ 187   1        adc_detect_value = GetADCResult(adc_detect_channel);
+ 188   1        if(ADC_VCC - adc_detect_value > ADC_DETECT_EXIST)
+ 189   1        {
+ 190   2           // 外围线路在
+ 191   2            reset_work_start();
+ 192   2            countdown_signal_start = YES;
+ 193   2            adc_sampling = YES;
+ 194   2        }
+ 195   1        else
+ 196   1        {
+ 197   2           // 外围线路不在
+ 198   2            countdown_signal_start = NO;
+ 199   2            time_colon_icon = 1;
+ 200   2            adc_sampling = YES;
+ 201   2        } 
+ 202   1      }
+ 203          
+ 204          
+ 205          
+ 206          void no_work_exit()
+ 207          {
+ 208   1        u16 adc_vbg_value, adc_detect_value; 
+ 209   1        adc_vbg_value = adc_detect_value = 0;
+ 210   1        adc_detect_value = GetADCResult(adc_detect_channel);
+ 211   1        if(ADC_VCC - adc_detect_value > ADC_DETECT_EXIST)
+ 212   1          // 有
+ 213   1            adc_now_exit = 1;
+ 214   1        else
+ 215   1          // 没有
+ 216   1            adc_now_exit = 0;
+ 217   1      
+ 218   1        if(!adc_now_exit && !adc_pre_exit){
+ 219   2            // 一直没有、等待插入
+ 220   2            // todo：一定时间到、休眠再讨论
+ 221   2            // Cnt_exit ++;
+ 222   2            // if(Cnt_exit > TIME_CNT_EXIT)
+ 223   2            // {
+ 224   2            //   // 直接退出
+ 225   2            //     Displayclean();
+ 226   2            //     charge_on = 0;
+ 227   2            //     countdown_signal_start = NO;
+ 228   2            //     time_colon_icon = 1;
+ 229   2            //     // POUT = 0;
+ 230   2            //     P31 = P12 = P55 = 1;
+ 231   2            //     key_sampling = NO;
+ 232   2            //     adc_sampling = NO;
+ 233   2            // }
+ 234   2        } else if(adc_now_exit && !adc_pre_exit){
+ 235   2            // 没有到有
+ 236   2            // 美牙程序已启动
+ 237   2            P31 = 0;
+ 238   2            P55 = 1;
+ 239   2            P12 = 1;
+ 240   2            Cnt_exit = 0;
+ 241   2            countdown_signal_start = YES;
+C51 COMPILER V9.52.0.0   ADC                                                               12/02/2016 16:34:31 PAGE 5   
+
+ 242   2        }else if(!adc_now_exit && adc_pre_exit){
+ 243   2            // 有到没有
+ 244   2            Cnt_exit = 0;
+ 245   2            P31 = P12 = P55 = 1;
+ 246   2            time_colon_icon = 1;
+ 247   2            countdown_signal_start = NO;
+ 248   2        } else {
+ 249   2            // 一直有
+ 250   2            Cnt_exit = 0;
+ 251   2        }
+ 252   1        adc_pre_exit  =  adc_now_exit;
+ 253   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    877    ----
+   CONSTANT SIZE    =      5    ----
+   XDATA SIZE       =    117    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      4       5
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

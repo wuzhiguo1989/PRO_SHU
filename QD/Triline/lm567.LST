@@ -1,0 +1,106 @@
+C51 COMPILER V9.52.0.0   LM567                                                             10/11/2015 15:46:04 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE LM567
+OBJECT MODULE PLACED IN lm567.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE lm567.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "led.h"
+   2          #include "lm567.h"
+   3          #include "shared.h"
+   4          
+   5          volatile u8 signal_ms_counter = SAMP_PER_MS;
+   6          volatile u8 signal_bit_counter = SIG_WIDTH;
+   7          volatile u8 signal_length_counter = SIG_LENGTH;
+   8          volatile u8 io_status_per_ms = 0;
+   9          volatile u16 io_status_per_bit = 0;
+  10          volatile u8 signal_raw_data = 0;
+  11          
+  12          volatile u8 fall_counter_while_bit = 0;
+  13          volatile u8 fall_counter_whole = 0;
+  14          volatile u8 rise_counter_in_tail = 0;
+  15          volatile u8 high_counter_in_tail = 0;
+  16          
+  17          volatile bool fall_counter_bit_take_account = false;
+  18          volatile bool candidate_signal_tail_check = false;
+  19          
+  20          
+  21          static void init_recieving() {
+  22   1        signal_ms_counter = SAMP_PER_MS;
+  23   1        signal_bit_counter = SIG_WIDTH;
+  24   1        signal_length_counter = SIG_LENGTH;
+  25   1        io_status_per_ms = 0;
+  26   1        io_status_per_bit = 0;
+  27   1        signal_raw_data = 0;
+  28   1      
+  29   1        fall_counter_while_bit = 0;
+  30   1        fall_counter_whole = 0;
+  31   1        rise_counter_in_tail = 0;
+  32   1        high_counter_in_tail = 0;
+  33   1      
+  34   1        candidate_signal_recieving = YES;
+  35   1        candidate_signal_tail_check = false;
+  36   1        fall_counter_bit_take_account = false;
+  37   1      }
+  38          
+  39          void init_signal_decoder(void) {
+  40   1          IT1 = 0;                      //  设置INT1的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  41   1          PX1 = 1;
+  42   1          EX1 = ENABLE;                  
+  43   1      }
+  44          
+  45          void start_check_candidate_tail() {
+  46   1        candidate_signal_recieving = NO;
+  47   1        candidate_signal_tail_check = true;
+  48   1      }
+  49          
+  50          void signal_buffer_process(void) {
+  51   1        candidate_signal_tail_check = false;
+  52   1      
+  53   1        if (rise_counter_in_tail < 2 && high_counter_in_tail < 2) {
+  54   2          INT_PROC |= LM567_DUTY;
+  55   2          EX1 = DISABLE;
+C51 COMPILER V9.52.0.0   LM567                                                             10/11/2015 15:46:04 PAGE 2   
+
+  56   2        }
+  57   1      }
+  58          
+  59          // LM567 caught one candidate signal
+  60          void exint1_isr() interrupt 2 using 2 
+  61          {
+  62   1        // Check INT is RISE
+  63   1        if (LM567_STAT && !candidate_signal_recieving && !candidate_signal_tail_check) {
+  64   2          // begin to sampling from P33
+  65   2          init_recieving();
+  66   2        }
+  67   1      
+  68   1        if (LM567_STAT && candidate_signal_tail_check)
+  69   1          ++rise_counter_in_tail;
+  70   1      
+  71   1        if (!LM567_STAT && candidate_signal_recieving) {
+  72   2          if (fall_counter_bit_take_account)
+  73   2            ++fall_counter_while_bit;
+  74   2      
+  75   2          ++fall_counter_whole;
+  76   2        }
+  77   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    141    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     11    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

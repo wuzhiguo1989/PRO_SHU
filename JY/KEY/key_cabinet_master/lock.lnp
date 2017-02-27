@@ -1,0 +1,18 @@
+"STARTUP.obj",
+"ble.obj",
+"sync.obj",
+"usart.obj",
+"main.obj",
+"task.obj",
+"share.obj",
+"utils.obj",
+"e2prom.obj",
+"config.obj",
+"adc.obj",
+"alarm.obj",
+"key.obj",
+"led.obj",
+"debug.obj" 
+TO "lock" 
+
+REMOVEUNUSED 

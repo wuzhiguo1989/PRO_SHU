@@ -1,0 +1,146 @@
+C51 COMPILER V9.52.0.0   ADC                                                               10/24/2015 21:55:10 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE ADC
+OBJECT MODULE PLACED IN adc.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE adc.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "adc.h"
+   2          #include "intrins.h"
+   3          #include "alarm.h"
+   4          #include "share.h"
+   5          #include "ble.h"
+   6          
+   7          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+   8          #define adc_bat_channel 6
+   9          #define adc_vac_channel 5
+  10          
+  11          
+  12          void init_adc()
+  13          {
+  14   1        P1ASF |= 0x60;
+  15   1        ADC_RES = 0;
+  16   1        ADC_RESL = 0;
+  17   1        ADC_CONTR = ADC_POWER | ADC_SPEED;
+  18   1      }
+  19          
+  20          
+  21          static u16 GetADCResult(u8 channel)
+  22          {
+  23   1        ADC_RES = 0;
+  24   1        ADC_RESL = 0;
+  25   1        // 选通道需要清除之前的通道
+  26   1        ADC_CONTR &= 0xF8;
+  27   1        ADC_CONTR |= channel;
+  28   1        ADC_CONTR |= ADC_START;
+  29   1        _nop_();                        
+  30   1          _nop_();
+  31   1          _nop_();
+  32   1          _nop_();
+  33   1          wait_adc_finish();              
+  34   1          ADC_CONTR &= ~ADC_FLAG;         
+  35   1          return ((ADC_RES << 2) | ADC_RESL);
+  36   1      }
+  37          
+  38          
+  39          // 0:正常 1：有问题
+  40          static bool battery_detected()
+  41          {
+  42   1        u8 i;
+  43   1        u16 adc_value = 0;
+  44   1        for(i = 0; i < 16; i++)
+  45   1          adc_value += GetADCResult(adc_bat_channel);
+  46   1        adc_value = adc_value >> 4;
+  47   1        // TX1_write2buff(0XEE);
+  48   1        // TX1_write2buff(adc_value);
+  49   1        // TX1_write2buff(adc_value >> 8);
+  50   1        if(adc_value > 235)
+  51   1          return 0; 
+  52   1        else 
+  53   1          return 1;
+  54   1      }
+  55          
+C51 COMPILER V9.52.0.0   ADC                                                               10/24/2015 21:55:10 PAGE 2   
+
+  56          
+  57          // 0:正常 1：有问题
+  58          static bool vac_detected()
+  59          {
+  60   1        u8 i;
+  61   1        u16 adc_value = 0;
+  62   1        for(i = 0; i < 16; i++)
+  63   1          adc_value += GetADCResult(adc_vac_channel);
+  64   1        adc_value = adc_value >> 4;
+  65   1        // TX1_write2buff(0X88);
+  66   1        // TX1_write2buff(adc_value);
+  67   1        // TX1_write2buff(adc_value >> 8);
+  68   1        if (adc_value > 20)
+  69   1          return 0; 
+  70   1        else 
+  71   1          return 1;
+  72   1      }
+  73          
+  74          
+  75          void voltage_performance_detected()
+  76          {
+  77   1        u8 battery_detected_flag, vac_detected_flag;
+  78   1        battery_detected_flag = battery_detected();
+  79   1        vac_detected_flag = vac_detected();
+  80   1        // battery_detected_flag = 0;
+  81   1        //vac_detected_flag = 0;
+  82   1        // TX1_write2buff(battery_detected_flag);
+  83   1        // TX1_write2buff(vac_detected_flag);
+  84   1        // 电池电量低
+  85   1        if(battery_detected_flag && !vac_detected_flag)
+  86   1        {
+  87   2          performance_status |= 0x80;
+  88   2          performance_status &= ~0x40;
+  89   2      
+  90   2        }
+  91   1        // 220V有问题
+  92   1        if(!battery_detected_flag && vac_detected_flag)
+  93   1        {
+  94   2          performance_status |= 0x40;
+  95   2          performance_status &= ~0x80;
+  96   2          
+  97   2        }
+  98   1        if(!battery_detected_flag && !vac_detected_flag)
+  99   1        {
+ 100   2          performance_status &= ~0xE0;
+ 101   2        }
+ 102   1        // 电压正常
+ 103   1        // if(!battery_detected_flag && !vac_detected_flag)
+ 104   1        // {  
+ 105   1        //  performance_status &= 0x20;
+ 106   1        //  // 锁有问题
+ 107   1        //  if(performance_status & 0x20)
+ 108   1        //    alarm_for_key_cabinet();
+ 109   1        //  // 一切正常
+ 110   1        //  else
+ 111   1        //  {
+ 112   1        //    alarm_for_no_problem();
+ 113   1        //  } 
+ 114   1        // }   
+ 115   1      }
+
+
+C51 COMPILER V9.52.0.0   ADC                                                               10/24/2015 21:55:10 PAGE 3   
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    202    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

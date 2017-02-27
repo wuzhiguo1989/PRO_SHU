@@ -1,0 +1,1883 @@
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE DISPLAY
+OBJECT MODULE PLACED IN display.OBJ
+COMPILER INVOKED BY: F:\Keil\C51\BIN\C51.EXE display.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "shared.h"
+   2          #include "display.h"
+   3          #include "sync.h"
+   4          #include "def.h"
+   5          #include "intrins.h"
+   6          #include "adc.h"
+   7          #include "uart.h"
+   8          #include "nRF24L01.h"
+   9          // ------------------------- display config declaring -------------------------
+  10          static code disp_t const
+  11          // 重新组织灯光模式
+  12          next_display_mode[14] = {flash2_directional, random_fade, stacking_flash, flash_and_chase, random_flashing
+             -, bi_directional_pulsing, bi_directional_chasing, pulsing, steady_flash, sequential_flashing, progressive_strobing, bi_d
+             -irectional_storbing, fade_in_fade_out,flash1_directional};
+  13          static u8 
+  14          next_combination_display_mode_counter[14] = {6, 6, 1, 4, 3, 2, 2, 3, 3, 6, 3, 1, 1, 1};
+  15          
+  16          static code disp_t const
+  17          next_sensor_display_mode[15] = {steady_flash, flash1_directional, sequential_flashing, bi_directional_chas
+             -ing, bi_directional_storbing, random_flashing,  flash_and_chase,
+  18            stacking_flash, bi_directional_chasing, flash2_directional, flash_and_chase, flash1_directional, flash2_d
+             -irectional, flash1_directional, sequential_flashing};
+  19          static u8 
+  20          next_sensor_display_mode_counter[15] = {7, 1, 2, 2, 1, 6, 2, 1, 1, 1, 2, 1, 5, 1, 3};
+  21          
+  22          // combination start from second disp_t
+  23          #define next_display_mode_from  1
+  24          
+  25          // TODO 60Hz is ok, 50Hz is not
+  26          static code u16 const
+  27          //phase_delay_for_60Hz[10] = {0xD99A, 0xDACD, 0xDD80, 0xDFE6, 0xE34D, 0xE4DA, 0xE740, 0xE9CD, 0xEC33, 0xF1
+             -00};
+  28          phase_delay_for_60Hz[10] = {0x2666, 0x2533, 0x2280, 0x201A, 0x1CB3, 0x1B26, 0x18C0, 0x1633, 0x13CD, 0x0F00
+             -};
+  29          // Cycle are calculated based on 5ms PCA timer -> sync.h
+  30          // 1 + 2
+  31          static code u16 const 
+  32          cycle_for_flash_directional[11]= {67, 60, 53, 46, 39, 33, 28, 22, 16, 11, 5};
+  33          // 3
+  34          static code u16 const 
+  35          cycle_for_random_fade[11] = {916, 833, 750, 666, 583, 500, 416, 333, 250, 166, 83};
+  36          // 4
+  37          static code u16 const 
+  38          cycle_for_stacking_flash[11] = {67, 60, 53, 46, 39, 33, 28, 22, 16, 11, 5};
+  39          // 5
+  40          static code u16 const 
+  41          cycle_for_flash_and_chase[11] = {67, 60, 53, 46, 39, 33, 28, 22, 16, 11, 5};
+  42          // 6
+  43          static code u16 const 
+  44          cycle_for_random_flashing[11][5] = {
+  45            {67, 25, 135, 67, 36},
+  46            {60, 22, 120, 60, 33},
+  47            {53, 20, 106, 53, 30},
+  48            {46, 18, 92, 46, 27},
+  49            {39, 16, 78, 39, 23},
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 2   
+
+  50            {33, 13, 67, 33, 20},
+  51            {28, 10, 56, 28, 16},
+  52            {22, 8, 44, 22, 13},
+  53            {16, 6, 32, 16, 10},
+  54            {11, 4, 22, 11, 7},
+  55            {5, 2, 10, 5, 3}
+  56          };
+  57          // 7
+  58          // TODO
+  59          static code u16 const 
+  60          cycle_for_bi_directional_pulsing[11][6] = {
+  61            {305, 611, 916, 1221, 1527, 1832},
+  62            {278, 555, 833, 1111, 1389, 1667},
+  63            {250, 500, 750, 1000, 1250, 1500},
+  64            {222, 444, 666, 888, 1110, 1332},
+  65            {195, 390, 583, 777, 971, 1166},
+  66            {167, 333, 500, 667, 833, 1000},
+  67            {139, 278, 416, 556, 695, 832},
+  68            {111, 222, 333, 444, 555, 666},
+  69            {83, 166, 250, 333, 416, 500},
+  70            {55, 110, 166, 221, 276, 331},
+  71            {28, 56, 83, 110, 138, 165}
+  72          };
+  73          // 8
+  74          static code u16 const 
+  75          cycle_for_bi_directional_chasing[11] = {67, 60, 53, 46, 39, 33, 28, 22, 16, 11, 5};
+  76          
+  77          // 9
+  78          static code u16 const 
+  79          cycle_for_pulsing[11] = {367, 333, 300, 267, 233, 200, 167, 133, 100, 67, 33};
+  80          // 10
+  81          static code u16 const 
+  82          cycle_for_steady_flash[11] = {275, 250, 200, 175, 150, 125, 100, 75, 50, 25};
+  83          // 11
+  84          static code u16 const 
+  85          cycle_for_sequential_flashing[11] = {67, 60, 53, 46, 39, 33, 28, 22, 16, 11, 5};
+  86          // 12
+  87          static code u16 const 
+  88          cycle_for_progressive_strobing[11][9] ={
+  89            {550, 390, 367, 293, 220, 132, 84, 59, 29},
+  90            {500, 360, 333, 267, 200, 120, 76, 53, 27},
+  91            {450, 330, 300, 240, 180, 108, 68, 48, 24},
+  92            {400, 300, 267, 213, 160, 96, 62, 42, 22},
+  93            {350, 270, 233, 187, 140, 84, 56, 37, 19},
+  94            {300, 240, 200, 160, 120, 72, 48, 32, 16},
+  95            {250, 180, 167, 133, 100, 60, 40, 27, 13},
+  96            {200, 150, 133, 107, 80, 48, 32, 22, 10},
+  97            {150, 120, 100, 80, 60, 36, 24, 16, 8},
+  98            {100, 80, 67, 53, 40, 24, 16, 11, 5},
+  99            {50, 40, 33, 27, 20, 12, 8, 5, 3}
+ 100          };
+ 101          // 13
+ 102          static code u16 const
+ 103          cycle_for_bi_directional_storbing[11][8] ={
+ 104            {51, 51, 51, 51, 37, 51, 51, 51},
+ 105            {47, 47, 47, 47, 33, 47, 47, 47},
+ 106            {42, 42, 42, 42, 30, 42, 42, 42},
+ 107            {37, 37, 37, 37, 27, 37, 37, 37},
+ 108            {33, 33, 33, 33, 24, 33, 33, 33},
+ 109            {28, 28, 28, 28, 20, 28, 28, 28},
+ 110            {23, 23, 23, 23, 16, 23, 23, 23},
+ 111            {19, 19, 19, 19, 13, 19, 19, 19,},
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 3   
+
+ 112            {14, 14, 14, 14, 10, 14, 14, 14},
+ 113            {9, 9, 9, 9, 7, 9, 9, 9},
+ 114            {5, 5, 5, 5, 4, 5, 5, 5}
+ 115          };
+ 116          // 14
+ 117          static code u16 const 
+ 118          cycle_for_fade_in_fade_out[11] = {916, 833, 750, 666, 583, 500, 416, 333, 250, 166, 83};
+ 119          
+ 120          static code u16 const 
+ 121          cycle_for_sensor[7] = {2, 2, 2, 2, 2, 2, 2};
+ 122          
+ 123          #define progress_strobing_interval_level 9
+ 124          
+ 125          //static code u16   cycle_for_not_effective_default[11] = {0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff,
+             - 0xffff, 0xffff, 0xffff, 0xffff, 0xffff};
+ 126          
+ 127          
+ 128          #define cycle_for_not_effective_default NULL
+ 129          
+ 130          static code u8 const 
+ 131          // strobing_half_cycle_counter_per_interval[9] = {4, 4, 4, 6, 6, 8, 8, 10, 12};
+ 132          strobing_half_cycle_counter_per_interval[9] = {8, 8, 8, 12, 12, 16, 16, 20, 24};
+ 133          
+ 134          static code u8 const 
+ 135          bi_directional_storbing_half_cycle_counter_per_interval[8] = {14, 14, 14, 14, 10, 14, 14, 14};
+ 136          // bi_directional_storbing_half_cycle_counter_per_interval[8] = {7, 7, 7, 7, 5, 7, 7, 7};
+ 137          
+ 138          #define BASE_AVG 0x7A
+ 139          // Sensor mode calculation based
+ 140          // Lumins level 3 - 10
+ 141          static code u8 const 
+ 142          diff_avg_range_1[8] = {3, 4, 5, 6, 7, 8, 9, 10};
+ 143          static code u8 const   
+ 144          diff_avg_range_2[8] = {3, 5, 7, 7, 12, 15, 19, 23};
+ 145          static code u8 const   
+ 146          diff_avg_range_3[8] = {4, 7, 11, 15, 20, 26, 31, 35};
+ 147          static code u8 const   
+ 148          diff_avg_range_4[8] = {4, 7, 11, 16, 22, 28, 33, 41};
+ 149          
+ 150          // Lumins level 2 for max_of_period_max < max_avg
+ 151          #define below_avg_threshhold_for_peace    8
+ 152          // Lumins level 1 for each range
+ 153          static code u8 const   
+ 154          below_avg_threshold[4] = {10, 11, 12, 13};
+ 155          static code u8 const   
+ 156          avg_range[4] = {0x00, 0x23, 0x26, 0x2f};
+ 157          
+ 158          // ------------------------- display private params -------------------------
+ 159          // idata *cycle_param -> cycle_for_detailed_display_mode in code
+ 160          static const u16 code * data cycle_params;
+ 161          // point to  , self can be modify
+ 162          static const u16 code * data current_phase_delay;
+ 163          // idata *display_driver -> detailed display_driver
+ 164          static display_driver_pt display_driver;
+ 165          static cycle_reached_pt cycle_reached;
+ 166          // lumins_level need to be fine-grained
+ 167          static BOOL lumins_level_fine_override = NO; 
+ 168          // deviation based on lower lumins_level_t in both RISE | FALL phase
+ 169          //static u8 lumins_level_deviation = 0;
+ 170          static u8 lumins_level_deviation[3] = {0};
+ 171          // mode 完成次数
+ 172          static u8 finish_cycle_counter = 0;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 4   
+
+ 173          // sensor_logic 下标计数
+ 174          static u8 sersor_current_logic = 0;
+ 175          
+ 176          // static u8 current_interval = 0;
+ 177          
+ 178          #define fade_in_out_fine_grained_level 10
+ 179          //static bit fade_in_out_flag = RISE;
+ 180          static u8 fade_in_out_flag[3] = {RISE, RISE, RISE};
+ 181          static bit dim_in_out_flag = FULL;
+ 182          #define lumins_level_min_deviation_interval_for_60Hz  120
+ 183          static u8 current_interval = 0;
+ 184          static u8 bi_directional_storbing_counter;
+ 185          //static u8 current_strobing_interval = 0;
+ 186          // -> strobing_half_cycle_counter_per_interval
+ 187          static u8 strobing_half_cycle_counter;
+ 188          
+ 189          static const u8 code * data diff;
+ 190          
+ 191          #define AVG_BUFFER_SIZE_BIT 6
+ 192          #define AVG_BUFFER_SIZE   (1 << AVG_BUFFER_SIZE_BIT)
+ 193          #define PERIOD_MAX_SIZE   4
+ 194          static xdata u16 avg_buffer[AVG_BUFFER_SIZE];
+ 195          static u16 period_max_buffer[PERIOD_MAX_SIZE];
+ 196          static u16 current_adc_max, max_sum = BASE_AVG << AVG_BUFFER_SIZE_BIT, max_avg = BASE_AVG;
+ 197          static u8 max_avg_index = 0, period_max_index = 0;
+ 198          static toggle_t toggle_stat_last_for_sensor_prevent_inst_blink = ON;
+ 199          static BOOL sensor_initializing = NO;
+ 200          
+ 201          // ------------------------- marco functions -------------------------
+ 202          
+ 203          #define reverse_dim_in_out_flag() dim_in_out_flag = ~dim_in_out_flag 
+ 204          #define sync_up_toggle_stat() toggle_stat_last_for_sensor_prevent_inst_blink = toggle_status
+ 205          #define index_of(x) x - 1
+ 206          //#define set_phase_timer(x) TL0 = x; TH0 = x >> 8
+ 207          #define lumins_level_fine_override_should_change(target) lumins_level_fine_override = (target == fade_in_f
+             -ade_out || target == random_fade || target == bi_directional_pulsing) ? YES : NO
+ 208          #define sensor_should_reinit_from_awake() ( toggle_status == ON && toggle_stat_last_for_sensor_prevent_ins
+             -t_blink == OFF)
+ 209          #define sensor_initializing_finished()  (max_avg_index == (AVG_BUFFER_SIZE >> 2))
+ 210          // ------------------------- private declaring -------------------------
+ 211          //static void half_cycle_reached();
+ 212          static u16 recalibrate_phase_delay(  lumins_level_t lumins,   u8 deviation);
+ 213          static u16 find_period_max_in_buffer();
+ 214          static void sync_with_target_satellite();
+ 215          
+ 216          // ------------------------- display_mode_init declaring -------------------------
+ 217          static void combination_driver_init();
+ 218          static void flash1_directional_driver_init();
+ 219          static void flash2_directional_driver_init();
+ 220          static void random_fade_driver_init();
+ 221          static void stacking_flash_driver_init();
+ 222          static void flash_and_chase_driver_init();
+ 223          static void random_flashing_driver_init();
+ 224          static void bi_directional_pulsing_driver_init();
+ 225          static void bi_directional_chasing_driver_init();
+ 226          static void pulsing_driver_init();
+ 227          static void steady_flash_driver_init();
+ 228          static void sequential_flashing_driver_init();
+ 229          static void progressive_strobing_driver_init();
+ 230          static void bi_directional_storbing_driver_init();
+ 231          static void fade_in_fade_out_driver_init();
+ 232          static void steady_burn_driver_init();
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 5   
+
+ 233          static void sensor_driver_init();
+ 234          
+ 235          
+ 236          
+ 237          // ------------------------- display_mode_driver declaring -------------------------
+ 238          //static void combination_driver();
+ 239          static void flash1_directional_driver();
+ 240          static void flash2_directional_driver();
+ 241          static void random_fade_driver();
+ 242          static void stacking_flash_driver();
+ 243          static void flash_and_chase_driver();
+ 244          static void random_flashing_driver();
+ 245          static void bi_directional_pulsing_driver();
+ 246          static void bi_directional_chasing_driver();
+ 247          static void pulsing_driver();
+ 248          static void steady_flash_driver();
+ 249          static void sequential_flashing_driver();
+ 250          static void progressive_strobing_driver();
+ 251          static void bi_directional_storbing_driver();
+ 252          static void fade_in_fade_out_driver();
+ 253          static void steady_burn_driver();
+ 254          static void sensor_driver();
+ 255          
+ 256          // ------------------------- display_mode_cycle_reached declaring -------------------------
+ 257          static void cycle_reached_flash1_directional(u16);
+ 258          static void cycle_reached_flash2_directional(u16);
+ 259          static void cycle_reached_random_fade(u16);
+ 260          static void cycle_reached_stacking_flash(u16);
+ 261          static void cycle_reached_flash_and_chase(u16);
+ 262          static void cycle_reached_random_flashing(u16);
+ 263          static void cycle_reached_bi_directional_pulsing(u16);
+ 264          static void cycle_reached_bi_directional_chasing(u16);
+ 265          static void cycle_reached_pulsing(u16);
+ 266          static void cycle_reached_steady_flash(u16);
+ 267          static void cycle_reached_sequential_flashing(u16);
+ 268          static void cycle_reached_progressive_strobing(u16);
+ 269          static void cycle_reached_bi_directional_storbing(u16);
+ 270          static void cycle_reached_fade_in_fade_out(u16);
+ 271          //static void cycle_reached_steady_burn();
+ 272          static void cycle_reached_sensor(u16);
+ 273          
+ 274          
+ 275          // ------------------------- public -------------------------
+ 276          // ONLY CALL BY main_isr
+ 277          // CAUTIONS!  DON't CALL THIS
+ 278          void display_startup_init() {
+ 279   1        combination_driver_init();                  // 1. no need to call steady_driver_init
+ 280   1        display_driver = steady_burn_driver;  // 2. dispatch display_driver
+ 281   1        cycle_params = cycle_for_not_effective_default; // 3. dispatch cycle_params
+ 282   1        _nop_();                      // 4. lumins_level_fine_override set by default to NO
+ 283   1        _nop_();                      // 5. counters are init by sync.c
+ 284   1        current_phase_delay = phase_delay_for_60Hz;     // 6. reset current phase_delay
+ 285   1      }
+ 286          
+ 287          void
+ 288          prepare_next_display_params() {
+ 289   1        display_driver();
+ 290   1        // preserve toggle_status for next round
+ 291   1        sync_up_toggle_stat();
+ 292   1      }
+ 293          
+ 294          void
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 6   
+
+ 295          ctrl_toggle_status_response(const toggle_t prev) {
+ 296   1        if (toggle_status != prev) {
+ 297   2          _nop_();
+ 298   2        }
+ 299   1      }
+ 300          
+ 301          void
+ 302          ctrl_display_mode_response(const disp_t prev) {
+ 303   1        if (display_mode_set != prev) {
+ 304   2          adc_disable();
+ 305   2          display_mode_set_changed();
+ 306   2        }
+ 307   1      }
+ 308          
+ 309          void
+ 310          toggle_once() {
+ 311   1        lumins_level_t lumins[3];
+ 312   1        u16 current_counter;
+ 313   1        lumins_level_logic[0] = lumins_level_logic_prepared[0];
+ 314   1        lumins_level_logic[1] = lumins_level_logic_prepared[1];
+ 315   1        lumins_level_logic[2] = lumins_level_logic_prepared[2];
+ 316   1        lumins[0] = lumins_level_logic[0];
+ 317   1        lumins[1] = lumins_level_logic[1];
+ 318   1        lumins[2] = lumins_level_logic[2];
+ 319   1        calibrated_phase_delay[0] = 0;
+ 320   1        calibrated_phase_delay[1] = 0;
+ 321   1        calibrated_phase_delay[2] = 0;
+ 322   1        
+ 323   1        if (lumins[0] && cycle_output[0])
+ 324   1          calibrated_phase_delay[0] = current_phase_delay[lumins[0] - 1];
+ 325   1        if (lumins[1] && cycle_output[1])
+ 326   1          calibrated_phase_delay[1] = current_phase_delay[lumins[1] - 1];
+ 327   1        if (lumins[2] && cycle_output[2])
+ 328   1          calibrated_phase_delay[2] = current_phase_delay[lumins[2] - 1];
+ 329   1        current_counter =  (CH << 8) | CL;
+ 330   1      
+ 331   1        if (!lumins_level_fine_override) {
+ 332   2          // Rx2Buf0[0] = cycle_output[0];
+ 333   2          Tx2Buf0[0] = calibrated_phase_delay[0] >> 8;
+ 334   2          Tx2Buf0[1] = calibrated_phase_delay[0];
+ 335   2          // Rx2Buf1[0] = cycle_output[1];
+ 336   2          Tx2Buf1[0] = calibrated_phase_delay[1] >> 8;
+ 337   2          Tx2Buf1[1] = calibrated_phase_delay[1];
+ 338   2          // Rx2Buf2[0] = cycle_output[2];
+ 339   2          Tx2Buf2[0] = calibrated_phase_delay[2] >> 8;
+ 340   2          Tx2Buf2[1] = calibrated_phase_delay[2];
+ 341   2          
+ 342   2          CCPA_tmp[0] = current_counter + calibrated_phase_delay[0];
+ 343   2              CCAP0L = CCPA_tmp[0] ;
+ 344   2              CCAP0H = CCPA_tmp[0] >> 8;
+ 345   2          CCPA_tmp[1] = current_counter + calibrated_phase_delay[1];
+ 346   2              CCAP1L = CCPA_tmp[1] ;
+ 347   2              CCAP1H = CCPA_tmp[1] >> 8;
+ 348   2              CCPA_tmp[2] = current_counter + calibrated_phase_delay[2];
+ 349   2              CCAP2L = CCPA_tmp[2] ;
+ 350   2              CCAP2H = CCPA_tmp[2] >> 8;
+ 351   2      
+ 352   2        } 
+ 353   1        else 
+ 354   1        { 
+ 355   2          if(cycle_output[0])
+ 356   2            calibrated_phase_delay[0] = recalibrate_phase_delay(lumins[0], lumins_level_deviation[0]);
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 7   
+
+ 357   2          else
+ 358   2            calibrated_phase_delay[0] = 0;
+ 359   2          if(cycle_output[1])
+ 360   2                calibrated_phase_delay[1] = recalibrate_phase_delay(lumins[1], lumins_level_deviation[1]);
+ 361   2          else
+ 362   2            calibrated_phase_delay[1] = 0;
+ 363   2          if(cycle_output[2])
+ 364   2                calibrated_phase_delay[2] = recalibrate_phase_delay(lumins[2], lumins_level_deviation[2]);
+ 365   2          else
+ 366   2            calibrated_phase_delay[2] = 0;
+ 367   2      
+ 368   2          // Rx2Buf0[0] = cycle_output[0];
+ 369   2          Tx2Buf0[0] = calibrated_phase_delay[0] >> 8;
+ 370   2          Tx2Buf0[1] = calibrated_phase_delay[0];
+ 371   2          // Rx2Buf1[0] = cycle_output[1];
+ 372   2          Tx2Buf1[0] = calibrated_phase_delay[1] >> 8;
+ 373   2          Tx2Buf1[1] = calibrated_phase_delay[1];
+ 374   2          // Rx2Buf2[0] = cycle_output[2];
+ 375   2          Tx2Buf2[0] = calibrated_phase_delay[2] >> 8;
+ 376   2          Tx2Buf2[1] = calibrated_phase_delay[2];
+ 377   2      
+ 378   2          CCPA_tmp[0] = current_counter + calibrated_phase_delay[0];
+ 379   2              CCAP0L = CCPA_tmp[0] ;
+ 380   2              CCAP0H = CCPA_tmp[0] >> 8;
+ 381   2              
+ 382   2          CCPA_tmp[1] = current_counter + calibrated_phase_delay[1];
+ 383   2              CCAP1L = CCPA_tmp[1] ;
+ 384   2              CCAP1H = CCPA_tmp[1] >> 8;
+ 385   2          
+ 386   2          CCPA_tmp[2] = current_counter + calibrated_phase_delay[2];
+ 387   2              CCAP2L = CCPA_tmp[2] ;
+ 388   2              CCAP2H = CCPA_tmp[2] >> 8;
+ 389   2      
+ 390   2        }
+ 391   1        phase_ctrl_enable();
+ 392   1        sync_with_target_satellite();
+ 393   1      }
+ 394          
+ 395          void 
+ 396          cycle_based_adjust(const u16 cycle) {
+ 397   1        if(display_mode_logic == steady_burn)
+ 398   1        {
+ 399   2          reset_counter_for_cycle();
+ 400   2        }
+ 401   1        else
+ 402   1        {
+ 403   2          cycle_reached(cycle);
+ 404   2        }
+ 405   1      
+ 406   1      }
+ 407          
+ 408          void 
+ 409          display_mode_set_changed() {
+ 410   1        // DON't trig display_mode_logic_changed()
+ 411   1        // -> sync.h
+ 412   1        cycle_ctrl_disable();
+ 413   1        display_mode_logic = display_mode_set;
+ 414   1        // 1. driver init
+ 415   1        // 2. display_driver -> detailed
+ 416   1        // 3. cycle_params -> detailed
+ 417   1        switch (display_mode_set) {
+ 418   2          case combination:
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 8   
+
+ 419   2            combination_driver_init();
+ 420   2            // display_mode_logic will never be combination
+ 421   2            // don't set display driver -> combination driver
+ 422   2            // don't set cycle_params -> any
+ 423   2            break;
+ 424   2          case flash1_directional: 
+ 425   2            flash1_directional_driver_init();
+ 426   2            display_driver = flash1_directional_driver;
+ 427   2            cycle_params = cycle_for_flash_directional;
+ 428   2            cycle_reached = cycle_reached_flash1_directional;
+ 429   2            break;
+ 430   2          case flash2_directional: 
+ 431   2            flash2_directional_driver_init();
+ 432   2            display_driver = flash2_directional_driver;
+ 433   2            cycle_params = cycle_for_flash_directional;
+ 434   2            cycle_reached = cycle_reached_flash2_directional;
+ 435   2            break;
+ 436   2          case random_fade: 
+ 437   2            random_fade_driver_init();
+ 438   2            display_driver = random_fade_driver;
+ 439   2            cycle_params = cycle_for_random_fade;
+ 440   2            cycle_reached = cycle_reached_random_fade;
+ 441   2            break;
+ 442   2          case stacking_flash: 
+ 443   2            stacking_flash_driver_init();
+ 444   2            display_driver = stacking_flash_driver;
+ 445   2            cycle_params = cycle_for_stacking_flash;
+ 446   2            cycle_reached = cycle_reached_stacking_flash;
+ 447   2            break;
+ 448   2          case flash_and_chase: 
+ 449   2            flash_and_chase_driver_init();
+ 450   2            display_driver = flash_and_chase_driver;
+ 451   2            cycle_params = cycle_for_flash_and_chase;
+ 452   2            cycle_reached = cycle_reached_flash_and_chase;
+ 453   2            break;
+ 454   2          case random_flashing: 
+ 455   2            random_flashing_driver_init();
+ 456   2            display_driver = random_flashing_driver;
+ 457   2            cycle_params = cycle_for_random_flashing[speed_level];
+ 458   2            cycle_reached = cycle_reached_random_flashing;
+ 459   2            break;
+ 460   2          case bi_directional_pulsing: 
+ 461   2            bi_directional_pulsing_driver_init();
+ 462   2            display_driver = bi_directional_pulsing_driver;
+ 463   2            cycle_params = cycle_for_bi_directional_pulsing[speed_level];
+ 464   2            cycle_reached = cycle_reached_bi_directional_pulsing;
+ 465   2            break;
+ 466   2          case bi_directional_chasing: 
+ 467   2            bi_directional_chasing_driver_init();
+ 468   2            display_driver = bi_directional_chasing_driver;
+ 469   2            cycle_params = cycle_for_bi_directional_chasing;
+ 470   2            cycle_reached = cycle_reached_bi_directional_chasing;
+ 471   2            break;
+ 472   2          case pulsing: 
+ 473   2            pulsing_driver_init();
+ 474   2            display_driver = pulsing_driver;
+ 475   2            cycle_params = cycle_for_pulsing;
+ 476   2            cycle_reached = cycle_reached_pulsing;
+ 477   2            break;
+ 478   2          case steady_flash: 
+ 479   2            steady_flash_driver_init();
+ 480   2            display_driver = steady_flash_driver;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 9   
+
+ 481   2            cycle_params = cycle_for_steady_flash;
+ 482   2            cycle_reached = cycle_reached_steady_flash;
+ 483   2            break;
+ 484   2          case sequential_flashing: 
+ 485   2            sequential_flashing_driver_init();
+ 486   2            display_driver = sequential_flashing_driver;
+ 487   2            cycle_params = cycle_for_sequential_flashing;
+ 488   2            cycle_reached = cycle_reached_sequential_flashing;
+ 489   2            break;
+ 490   2          case progressive_strobing: 
+ 491   2            progressive_strobing_driver_init();
+ 492   2            display_driver = progressive_strobing_driver;
+ 493   2            // current_strobing_interval set in init()
+ 494   2            cycle_params = cycle_for_progressive_strobing[speed_level];
+ 495   2            cycle_reached = cycle_reached_progressive_strobing;
+ 496   2            break;
+ 497   2          case bi_directional_storbing: 
+ 498   2            bi_directional_storbing_driver_init();
+ 499   2            display_driver = bi_directional_storbing_driver;
+ 500   2            cycle_params = cycle_for_bi_directional_storbing[speed_level];
+ 501   2            cycle_reached = cycle_reached_bi_directional_storbing;
+ 502   2            break;
+ 503   2          case fade_in_fade_out: 
+ 504   2            fade_in_fade_out_driver_init();
+ 505   2            display_driver = fade_in_fade_out_driver;
+ 506   2            cycle_params = cycle_for_fade_in_fade_out;
+ 507   2            cycle_reached = cycle_reached_fade_in_fade_out;
+ 508   2            break;
+ 509   2          case steady_burn: 
+ 510   2            steady_burn_driver_init();
+ 511   2            display_driver = steady_burn_driver;
+ 512   2            cycle_params = cycle_for_not_effective_default;
+ 513   2            break;    
+ 514   2          case sensor:
+ 515   2            sensor_driver_init();
+ 516   2            display_driver = sensor_driver;
+ 517   2            cycle_params = cycle_for_sensor;
+ 518   2            cycle_reached = cycle_reached_sensor;
+ 519   2            break;
+ 520   2          default:
+ 521   2            break; 
+ 522   2        }
+ 523   1      
+ 524   1        // override flag -> YES:  (slow)fade-in-out
+ 525   1        // override flag -> NO:   else
+ 526   1        lumins_level_fine_override_should_change(display_mode_logic);
+ 527   1        reset_all_counters();
+ 528   1        // -> sync.h
+ 529   1        cycle_ctrl_enable();
+ 530   1      }
+ 531          
+ 532          // called by pca_isr (combination rotation)
+ 533          // called by com_isr (combination init)
+ 534          void 
+ 535          display_mode_logic_changed() {
+ 536   1        // 1. driver init
+ 537   1        // 2. display_driver -> detailed
+ 538   1        // 3. cycle_params -> detailed
+ 539   1        // -> sync.h
+ 540   1        //cycle_ctrl_disable();
+ 541   1        switch (display_mode_logic) {
+ 542   2      
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 10  
+
+ 543   2          case combination:
+ 544   2            // display_mode_logic will never be combination
+ 545   2            break;
+ 546   2          case flash1_directional: 
+ 547   2            flash1_directional_driver_init();
+ 548   2            display_driver = flash1_directional_driver;
+ 549   2            cycle_params = cycle_for_flash_directional;
+ 550   2            cycle_reached = cycle_reached_flash1_directional;
+ 551   2            break;
+ 552   2          case flash2_directional: 
+ 553   2            flash2_directional_driver_init();
+ 554   2            display_driver = flash2_directional_driver;
+ 555   2            cycle_params = cycle_for_flash_directional;
+ 556   2            cycle_reached = cycle_reached_flash2_directional;
+ 557   2            break;
+ 558   2          case random_fade: 
+ 559   2            random_fade_driver_init();
+ 560   2            display_driver = random_fade_driver;
+ 561   2            cycle_params = cycle_for_random_fade;
+ 562   2            cycle_reached = cycle_reached_random_fade;
+ 563   2            break;
+ 564   2          case stacking_flash: 
+ 565   2            stacking_flash_driver_init();
+ 566   2            display_driver = stacking_flash_driver;
+ 567   2            cycle_params = cycle_for_stacking_flash;
+ 568   2            cycle_reached = cycle_reached_stacking_flash;
+ 569   2            break;
+ 570   2          case flash_and_chase: 
+ 571   2            flash_and_chase_driver_init();
+ 572   2            display_driver = flash_and_chase_driver;
+ 573   2            cycle_params = cycle_for_flash_and_chase;
+ 574   2            cycle_reached = cycle_reached_flash_and_chase;
+ 575   2            break;
+ 576   2          case random_flashing: 
+ 577   2            random_flashing_driver_init();
+ 578   2            display_driver = random_flashing_driver;
+ 579   2            cycle_params = cycle_for_random_flashing[speed_level];
+ 580   2            cycle_reached = cycle_reached_random_flashing;
+ 581   2            break;
+ 582   2          case bi_directional_pulsing: 
+ 583   2            bi_directional_pulsing_driver_init();
+ 584   2            display_driver = bi_directional_pulsing_driver;
+ 585   2            cycle_params = cycle_for_bi_directional_pulsing[speed_level];
+ 586   2            cycle_reached = cycle_reached_bi_directional_pulsing;
+ 587   2            break;
+ 588   2          case bi_directional_chasing: 
+ 589   2            bi_directional_chasing_driver_init();
+ 590   2            display_driver = bi_directional_chasing_driver;
+ 591   2            cycle_params = cycle_for_bi_directional_chasing;
+ 592   2            cycle_reached = cycle_reached_bi_directional_chasing;
+ 593   2            break;
+ 594   2          case pulsing: 
+ 595   2            pulsing_driver_init();
+ 596   2            display_driver = pulsing_driver;
+ 597   2            cycle_params = cycle_for_pulsing;
+ 598   2            cycle_reached = cycle_reached_pulsing;
+ 599   2            break;
+ 600   2          case steady_flash: 
+ 601   2            steady_flash_driver_init();
+ 602   2            display_driver = steady_flash_driver;
+ 603   2            cycle_params = cycle_for_steady_flash;
+ 604   2            cycle_reached = cycle_reached_steady_flash;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 11  
+
+ 605   2            break;
+ 606   2          case sequential_flashing: 
+ 607   2            // sequential_flashing_driver_init();
+ 608   2            // display_driver = sequential_flashing_driver;
+ 609   2            // cycle_params = cycle_for_sequential_flashing;
+ 610   2            // cycle_reached = cycle_reached_sequential_flashing;
+ 611   2            break;
+ 612   2          case progressive_strobing: 
+ 613   2            progressive_strobing_driver_init();
+ 614   2            display_driver = progressive_strobing_driver;
+ 615   2            // current_strobing_interval set in init()
+ 616   2            cycle_params = cycle_for_progressive_strobing[speed_level];
+ 617   2            cycle_reached = cycle_reached_progressive_strobing;
+ 618   2            break;
+ 619   2          case bi_directional_storbing: 
+ 620   2            bi_directional_storbing_driver_init();
+ 621   2            display_driver = bi_directional_storbing_driver;
+ 622   2            cycle_params = cycle_for_bi_directional_storbing[speed_level];
+ 623   2            cycle_reached = cycle_reached_bi_directional_storbing;
+ 624   2            break;
+ 625   2          case fade_in_fade_out: 
+ 626   2            fade_in_fade_out_driver_init();
+ 627   2            display_driver = fade_in_fade_out_driver;
+ 628   2            cycle_params = cycle_for_fade_in_fade_out;
+ 629   2            cycle_reached = cycle_reached_fade_in_fade_out;
+ 630   2            break;
+ 631   2          case steady_burn: 
+ 632   2            // steady_burn_driver_init();
+ 633   2            // display_driver = steady_burn_driver;
+ 634   2            // cycle_params = cycle_for_not_effective_default;
+ 635   2            break;    
+ 636   2          case sensor:
+ 637   2            // com_isr -> display_mode_set := sensor -> sensor_init
+ 638   2            // no other routine direct called 
+ 639   2            break;
+ 640   2          default:
+ 641   2            break; 
+ 642   2        }
+ 643   1        reset_counter_for_cycle();
+ 644   1        // override flag -> YES:  (slow)fade-in-out
+ 645   1        // override flag -> NO:   else
+ 646   1        lumins_level_fine_override_should_change(display_mode_logic);
+ 647   1        // dont't reset all counters
+ 648   1        //cycle_ctrl_enable();
+ 649   1      }
+ 650          
+ 651          void
+ 652          skip_to_next_display_if_should() {
+ 653   1        if (display_mode_set == combination) {
+ 654   2          if(finish_cycle_counter == next_combination_display_mode_counter[display_mode_logic - next_display_mode_
+             -from])
+ 655   2          {
+ 656   3            display_mode_logic = next_display_mode[display_mode_logic - next_display_mode_from];
+ 657   3            finish_cycle_counter = 0;
+ 658   3            display_mode_logic_changed();
+ 659   3          }
+ 660   2        }
+ 661   1      
+ 662   1      }
+ 663          
+ 664          static void sync_with_target_satellite() {
+ 665   1        INT_CLKO &= 0xEF; // 关闭发送中断
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 12  
+
+ 666   1        NRF24L01_TX_Mode();
+ 667   1        //NRF24L01_TxPacket_NUM(Tx2Buf0,0);
+ 668   1        NRF24L01_TxPacket_NUM(Tx2Buf1,1);
+ 669   1        NRF24L01_TxPacket_NUM(Tx2Buf2,2);
+ 670   1        NRF24L01_RX_Mode(4);
+ 671   1        INT_CLKO |= 0x10;
+ 672   1      }
+ 673          /*
+ 674          * params <lumins_level_t> lumins: lumins_level_min to lumins_level_max
+ 675          * params <u8> deviation: 0 - 9
+ 676          * 
+ 677          */
+ 678          static u16 
+ 679          recalibrate_phase_delay(const lumins_level_t lumins, const u8 deviation) {
+ 680   1        if (lumins == lumins_level_max) {
+ 681   2        //  return current_phase_delay[index_of(lumins_level_max)];
+ 682   2          return current_phase_delay[index_of(lumins_level_max)];
+ 683   2        } else if (lumins == lumins_level_min) {
+ 684   2          u16 phase_delay_adjust = (fade_in_out_fine_grained_level - deviation) * lumins_level_min_deviation_inter
+             -val_for_60Hz;
+ 685   2          // lumins_level_min ------ 1 ------ 2 ------ ... ------ 9 ------- lumins_level_min + 1
+ 686   2          return current_phase_delay[0] + phase_delay_adjust;
+ 687   2        } else {
+ 688   2          u16 phase_delay_delta =current_phase_delay[index_of(lumins)] - current_phase_delay[lumins];
+ 689   2          u16 phase_delay_interval = phase_delay_delta / fade_in_out_fine_grained_level;
+ 690   2          return current_phase_delay[index_of(lumins)] - phase_delay_interval * deviation;
+ 691   2        }
+ 692   1      }
+ 693          
+ 694          static u16 find_period_max_in_buffer() {
+ 695   1        u16 current_max = 0;
+ 696   1        u8 i;
+ 697   1        for (i = PERIOD_MAX_SIZE; i; ) {
+ 698   2          if (current_max < period_max_buffer[--i])
+ 699   2            current_max = period_max_buffer[i];
+ 700   2        }
+ 701   1        return current_max;
+ 702   1      }
+ 703          
+ 704          // 0
+ 705          static void
+ 706          combination_driver_init() {
+ 707   1        cycle_output[0] = ON;
+ 708   1        cycle_output[1] = ON;
+ 709   1        cycle_output[2] = ON;
+ 710   1        lumins_level_logic_prepared[0] = lumins_level_set;
+ 711   1        lumins_level_logic_prepared[1] = lumins_level_set;
+ 712   1        lumins_level_logic_prepared[2] = lumins_level_set;
+ 713   1      //  display_mode_logic = slow_flashing;
+ 714   1        display_mode_logic = flash1_directional;
+ 715   1        finish_cycle_counter = 0;
+ 716   1        // cycle_params = cycle_for_flash1_directional;   // 3. dispatch cycle_params
+ 717   1        // cycle_reached = cycle_reached_flash1_directional;
+ 718   1        display_mode_logic_changed();
+ 719   1      }
+ 720          
+ 721          // 1
+ 722          static void 
+ 723          flash1_directional_driver(void) {
+ 724   1        lumins_level_logic_prepared[0] = lumins_level_set;
+ 725   1        lumins_level_logic_prepared[1] = lumins_level_set;
+ 726   1        lumins_level_logic_prepared[2] = lumins_level_set;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 13  
+
+ 727   1      }
+ 728          
+ 729          static void
+ 730          flash1_directional_driver_init() {
+ 731   1        lumins_level_logic_prepared[0] = lumins_level_set;
+ 732   1        lumins_level_logic_prepared[1] = lumins_level_set;
+ 733   1        lumins_level_logic_prepared[2] = lumins_level_set;
+ 734   1        current_interval = 0;
+ 735   1        cycle_output[0] = ON;
+ 736   1        cycle_output[1] = OFF;
+ 737   1        cycle_output[2] = OFF;
+ 738   1      }
+ 739          
+ 740          
+ 741          static void 
+ 742          cycle_reached_flash1_directional(u16 cycle) 
+ 743          {
+ 744   1        if(cycle >= cycle_params[speed_level])
+ 745   1        {
+ 746   2          if(current_interval == 0){
+ 747   3            cycle_output[0] = OFF;
+ 748   3            cycle_output[1] = ON;
+ 749   3            cycle_output[2] = OFF;
+ 750   3          }
+ 751   2          else if(current_interval == 1){
+ 752   3            cycle_output[0] = OFF;
+ 753   3            cycle_output[1] = OFF;
+ 754   3            cycle_output[2] = ON;
+ 755   3          }
+ 756   2          else if(current_interval == 2){
+ 757   3            cycle_output[0] = OFF;
+ 758   3            cycle_output[1] = OFF;
+ 759   3            cycle_output[2] = OFF;
+ 760   3          }
+ 761   2          else if(current_interval == 5){
+ 762   3            cycle_output[0] = ON;
+ 763   3            cycle_output[1] = OFF;
+ 764   3            cycle_output[2] = OFF;
+ 765   3          }
+ 766   2          else
+ 767   2          {
+ 768   3          // 3->4 2倍时间做一件事
+ 769   3            cycle_output[0] = OFF;
+ 770   3            cycle_output[1] = OFF;
+ 771   3            cycle_output[2] = OFF;
+ 772   3          }
+ 773   2          reset_counter_for_cycle();
+ 774   2          ++ current_interval;
+ 775   2          if(current_interval == 6)
+ 776   2          {
+ 777   3            // 计完成周期
+ 778   3            if(display_mode_set == combination || display_mode_set == sensor)
+ 779   3              finish_cycle_counter ++;
+ 780   3            current_interval = 0;
+ 781   3          }
+ 782   2        }
+ 783   1      }
+ 784          
+ 785          // 2
+ 786          static void 
+ 787          flash2_directional_driver(void) {
+ 788   1        lumins_level_logic_prepared[0] = lumins_level_set;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 14  
+
+ 789   1        lumins_level_logic_prepared[1] = lumins_level_set;
+ 790   1        lumins_level_logic_prepared[2] = lumins_level_set;
+ 791   1      }
+ 792          
+ 793          static void
+ 794          flash2_directional_driver_init() {
+ 795   1        lumins_level_logic_prepared[0] = lumins_level_set;
+ 796   1        lumins_level_logic_prepared[1] = lumins_level_set;
+ 797   1        lumins_level_logic_prepared[2] = lumins_level_set;
+ 798   1        current_interval = 0;
+ 799   1        cycle_output[0] = OFF;
+ 800   1        cycle_output[1] = OFF;
+ 801   1        cycle_output[2] = ON;
+ 802   1      }
+ 803          
+ 804          static void 
+ 805          cycle_reached_flash2_directional(u16 cycle) 
+ 806          {
+ 807   1        if(cycle >= cycle_params[speed_level])
+ 808   1        {
+ 809   2          if(current_interval == 0){
+ 810   3            cycle_output[0] = OFF;
+ 811   3            cycle_output[1] = ON;
+ 812   3            cycle_output[2] = OFF;
+ 813   3          }
+ 814   2          else if(current_interval == 1){
+ 815   3            cycle_output[0] = ON;
+ 816   3            cycle_output[1] = OFF;
+ 817   3            cycle_output[2] = OFF;
+ 818   3          }
+ 819   2          else if(current_interval == 2){
+ 820   3            cycle_output[0] = OFF;
+ 821   3            cycle_output[1] = OFF;
+ 822   3            cycle_output[2] = OFF;
+ 823   3          }
+ 824   2          else if(current_interval == 5){
+ 825   3            cycle_output[0] = OFF;
+ 826   3            cycle_output[1] = OFF;
+ 827   3            cycle_output[2] = ON;
+ 828   3          }
+ 829   2          else
+ 830   2          {
+ 831   3          // 3->4 2倍时间做一件事
+ 832   3            cycle_output[0] = OFF;
+ 833   3            cycle_output[1] = OFF;
+ 834   3            cycle_output[2] = OFF;
+ 835   3          }
+ 836   2          reset_counter_for_cycle();
+ 837   2          ++ current_interval;
+ 838   2          if(current_interval == 6)
+ 839   2          {
+ 840   3            // 计完成周期
+ 841   3            if(display_mode_set == combination || display_mode_set == sensor)
+ 842   3              finish_cycle_counter ++;
+ 843   3            current_interval = 0;
+ 844   3          }
+ 845   2        }
+ 846   1      }
+ 847          // 3
+ 848          static void 
+ 849          random_fade_driver(void) {
+ 850   1        u8 i;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 15  
+
+ 851   1        u16 current_counter = counter_for_cycle;
+ 852   1        for(i = 0; i < 3; i++)
+ 853   1        {
+ 854   2          u16 progress = (current_counter * 100UL) / (cycle_for_fade_in_fade_out[speed_level]) ;
+ 855   2          u16 reversed_cycle_rate_of_progress = 100 - progress;
+ 856   2      
+ 857   2          if (fade_in_out_flag[i] == RISE) {
+ 858   3          // 0 -> 10
+ 859   3            lumins_level_logic_prepared[i] = progress / fade_in_out_fine_grained_level;
+ 860   3            lumins_level_deviation[i] = progress - lumins_level_logic_prepared[i] * fade_in_out_fine_grained_level;
+ 861   3          } else { // FALL
+ 862   3          // 10 -> 0
+ 863   3            lumins_level_logic_prepared[i] = reversed_cycle_rate_of_progress / fade_in_out_fine_grained_level;
+ 864   3            lumins_level_deviation[i] = reversed_cycle_rate_of_progress - lumins_level_logic_prepared[i] * fade_in_
+             -out_fine_grained_level;
+ 865   3          }
+ 866   2        }
+ 867   1      }
+ 868          
+ 869          static void
+ 870          random_fade_driver_init() {
+ 871   1        cycle_output[0] = OFF;
+ 872   1        cycle_output[1] = ON;
+ 873   1        cycle_output[2] = ON;
+ 874   1        lumins_level_logic_prepared[0] = lumins_level_min;
+ 875   1        lumins_level_logic_prepared[1] = lumins_level_max;
+ 876   1        lumins_level_logic_prepared[2] = lumins_level_min;
+ 877   1        fade_in_out_flag[0] = RISE;
+ 878   1        fade_in_out_flag[1] = FALL;
+ 879   1        fade_in_out_flag[2] = RISE;
+ 880   1        current_interval = 0;
+ 881   1      }
+ 882          
+ 883          
+ 884          static void 
+ 885          cycle_reached_random_fade(u16 cycle) {
+ 886   1        if(cycle >= cycle_params[speed_level])
+ 887   1        {
+ 888   2          if(current_interval == 0){
+ 889   3            fade_in_out_flag[0] = FALL;
+ 890   3            fade_in_out_flag[1] = RISE;
+ 891   3            fade_in_out_flag[2] = FALL;
+ 892   3            cycle_output[0] = OFF;
+ 893   3            cycle_output[1] = ON;
+ 894   3            cycle_output[2] = ON;
+ 895   3          }
+ 896   2          else if(current_interval == 1){
+ 897   3            fade_in_out_flag[0] = RISE;
+ 898   3            fade_in_out_flag[1] = FALL;
+ 899   3            fade_in_out_flag[2] = RISE;
+ 900   3            cycle_output[0] = ON;
+ 901   3            cycle_output[1] = ON;
+ 902   3            cycle_output[2] = OFF;
+ 903   3          }
+ 904   2          else if(current_interval == 2){
+ 905   3            fade_in_out_flag[0] = FALL;
+ 906   3            fade_in_out_flag[1] = RISE;
+ 907   3            fade_in_out_flag[2] = FALL;
+ 908   3            cycle_output[0] = ON;
+ 909   3            cycle_output[1] = ON;
+ 910   3            cycle_output[2] = OFF;
+ 911   3      
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 16  
+
+ 912   3          }
+ 913   2          else if(current_interval == 3){
+ 914   3            fade_in_out_flag[0] = RISE;
+ 915   3            fade_in_out_flag[1] = FALL;
+ 916   3            fade_in_out_flag[2] = RISE;
+ 917   3            cycle_output[0] = OFF;
+ 918   3            cycle_output[1] = ON;
+ 919   3            cycle_output[2] = ON;
+ 920   3          }
+ 921   2          reset_counter_for_cycle();
+ 922   2          ++ current_interval;
+ 923   2          if(current_interval == 4)
+ 924   2          {
+ 925   3            // 计完成周期
+ 926   3            if(display_mode_set == combination || display_mode_set == sensor)
+ 927   3              finish_cycle_counter ++;
+ 928   3            current_interval = 0;
+ 929   3          }
+ 930   2        }
+ 931   1      }
+ 932          
+ 933          
+ 934          
+ 935          // 4
+ 936          static void 
+ 937          stacking_flash_driver(void) {
+ 938   1        lumins_level_logic_prepared[0] = lumins_level_set;
+ 939   1        lumins_level_logic_prepared[1] = lumins_level_set;
+ 940   1        lumins_level_logic_prepared[2] = lumins_level_set;
+ 941   1      }
+ 942          
+ 943          static void
+ 944          stacking_flash_driver_init() {
+ 945   1        cycle_output[0] = OFF;
+ 946   1        cycle_output[1] = OFF;
+ 947   1        cycle_output[2] = ON;
+ 948   1        current_interval = 0;
+ 949   1        lumins_level_logic_prepared[0] = lumins_level_set;
+ 950   1        lumins_level_logic_prepared[1] = lumins_level_set;
+ 951   1        lumins_level_logic_prepared[2] = lumins_level_set;
+ 952   1      }
+ 953          
+ 954          
+ 955          static void 
+ 956          cycle_reached_stacking_flash(u16 cycle) {
+ 957   1      
+ 958   1        if(cycle >= cycle_params[speed_level])
+ 959   1        {
+ 960   2          if(current_interval == 0){
+ 961   3      //      cycle_output[0] = OFF;
+ 962   3            cycle_output[1] = ON;
+ 963   3      //      cycle_output[2] = ON;
+ 964   3          }
+ 965   2          else if(current_interval == 1){
+ 966   3            cycle_output[0] = ON;
+ 967   3      //      cycle_output[1] = ON;
+ 968   3      //      cycle_output[2] = ON;
+ 969   3          }
+ 970   2          else if(current_interval == 2){
+ 971   3      //      cycle_output[0] = OFF;
+ 972   3      //      cycle_output[1] = ON;
+ 973   3      //      cycle_output[2] = ON;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 17  
+
+ 974   3          }
+ 975   2          else if(current_interval == 3){
+ 976   3            cycle_output[0] = OFF;
+ 977   3            // cycle_output[1] = ON;
+ 978   3            // cycle_output[2] = ON;
+ 979   3          }
+ 980   2          else if(current_interval == 4){
+ 981   3      //      cycle_output[0] = OFF;
+ 982   3            cycle_output[1] = OFF;
+ 983   3            // cycle_output[2] = ON;
+ 984   3          }
+ 985   2          else if(current_interval == 5){
+ 986   3      //      cycle_output[0] = OFF;
+ 987   3      //      cycle_output[1] = OFF;
+ 988   3            cycle_output[2] = OFF;
+ 989   3          }
+ 990   2          else if(current_interval == 11){
+ 991   3      //      cycle_output[0] = OFF;
+ 992   3      //      cycle_output[1] = OFF;
+ 993   3            cycle_output[2] = ON;
+ 994   3          }
+ 995   2          // 6 -> 10 继续关闭全部
+ 996   2          else{ 
+ 997   3      //      cycle_output[0] = OFF;
+ 998   3      //      cycle_output[1] = OFF;
+ 999   3      //      cycle_output[2] = OFF;
+1000   3          }
+1001   2          reset_counter_for_cycle();
+1002   2          ++ current_interval;
+1003   2          if(current_interval == 12)
+1004   2          {
+1005   3            // 计完成周期
+1006   3            if(display_mode_set == combination || display_mode_set == sensor)
+1007   3              finish_cycle_counter ++;
+1008   3            current_interval = 0;
+1009   3          }
+1010   2        }
+1011   1      }
+1012          
+1013          
+1014          // 5
+1015          static void 
+1016          flash_and_chase_driver(void) {
+1017   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1018   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1019   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1020   1      }
+1021          
+1022          static void
+1023          flash_and_chase_driver_init() {
+1024   1        cycle_output[0] = ON;
+1025   1        cycle_output[1] = OFF;
+1026   1        cycle_output[2] = OFF;
+1027   1        current_interval = 0;
+1028   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1029   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1030   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1031   1      }
+1032          
+1033          
+1034          static void 
+1035          cycle_reached_flash_and_chase(u16 cycle) {
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 18  
+
+1036   1      
+1037   1        if(cycle >= cycle_params[speed_level])
+1038   1        {
+1039   2          if(current_interval == 0){
+1040   3            cycle_output[0] = OFF;
+1041   3            cycle_output[1] = ON;
+1042   3            cycle_output[2] = OFF;
+1043   3          }
+1044   2          else if(current_interval == 1){
+1045   3            cycle_output[0] = OFF;
+1046   3            cycle_output[1] = OFF;
+1047   3            cycle_output[2] = ON;
+1048   3          }
+1049   2          else if(current_interval == 2){
+1050   3            cycle_output[0] = OFF;
+1051   3            cycle_output[1] = OFF;
+1052   3            cycle_output[2] = OFF;
+1053   3          }
+1054   2          else if(current_interval == 3){
+1055   3      
+1056   3            cycle_output[0] = ON;
+1057   3            cycle_output[1] = OFF;
+1058   3            cycle_output[2] = OFF;
+1059   3          }
+1060   2          else if(current_interval == 4){
+1061   3            cycle_output[0] = OFF;
+1062   3            cycle_output[1] = ON;
+1063   3            cycle_output[2] = OFF;
+1064   3          }
+1065   2          else if(current_interval == 5){
+1066   3            cycle_output[0] = OFF;
+1067   3            cycle_output[1] = OFF;
+1068   3            cycle_output[2] = ON;
+1069   3          }
+1070   2          else if(current_interval == 6){
+1071   3            cycle_output[0] = ON;
+1072   3            cycle_output[1] = OFF;
+1073   3            cycle_output[2] = ON;
+1074   3          }
+1075   2          else if(current_interval == 7){
+1076   3            cycle_output[0] = OFF;
+1077   3            cycle_output[1] = ON;
+1078   3            cycle_output[2] = ON;
+1079   3          }
+1080   2          else if(current_interval == 8){
+1081   3            cycle_output[0] = ON;
+1082   3            cycle_output[1] = ON;
+1083   3            cycle_output[2] = ON;
+1084   3          }
+1085   2          else if(current_interval == 9){
+1086   3            cycle_output[0] = OFF;
+1087   3            cycle_output[1] = OFF;
+1088   3            cycle_output[2] = OFF;
+1089   3          }
+1090   2          else if(current_interval == 10){
+1091   3            cycle_output[0] = OFF;
+1092   3            cycle_output[1] = OFF;
+1093   3            cycle_output[2] = OFF;
+1094   3          }
+1095   2          else if(current_interval == 11){
+1096   3            cycle_output[0] = ON;
+1097   3            cycle_output[1] = OFF;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 19  
+
+1098   3            cycle_output[2] = OFF;
+1099   3          }
+1100   2          reset_counter_for_cycle();
+1101   2          ++ current_interval;
+1102   2          if(current_interval == 12)
+1103   2          {
+1104   3            // 计完成周期
+1105   3            if(display_mode_set == combination || display_mode_set == sensor)
+1106   3              finish_cycle_counter ++;
+1107   3            current_interval = 0;
+1108   3          }
+1109   2        }
+1110   1      }
+1111          
+1112          
+1113          // 6
+1114          static void 
+1115          random_flashing_driver(void) {
+1116   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1117   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1118   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1119   1      }
+1120          
+1121          static void
+1122          random_flashing_driver_init() {
+1123   1        cycle_output[0] = OFF;
+1124   1        cycle_output[1] = ON;
+1125   1        cycle_output[2] = ON;
+1126   1        current_interval = 0;
+1127   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1128   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1129   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1130   1      }
+1131          
+1132          
+1133          static void 
+1134          cycle_reached_random_flashing(u16 cycle) {
+1135   1      
+1136   1        if(cycle >= cycle_params[current_interval])
+1137   1        {
+1138   2          if(current_interval == 0){
+1139   3            cycle_output[0] = OFF;
+1140   3            cycle_output[1] = ON;
+1141   3            cycle_output[2] = ON;
+1142   3          }
+1143   2          else if(current_interval == 1){
+1144   3            cycle_output[0] = ON;
+1145   3            cycle_output[1] = OFF;
+1146   3            cycle_output[2] = OFF;
+1147   3          }
+1148   2          else if(current_interval == 2){
+1149   3            cycle_output[0] = OFF;
+1150   3            cycle_output[1] = OFF;
+1151   3            cycle_output[2] = OFF;
+1152   3          }
+1153   2          else if(current_interval == 3){
+1154   3            cycle_output[0] = OFF;
+1155   3            cycle_output[1] = OFF;
+1156   3            cycle_output[2] = OFF;
+1157   3          }
+1158   2          else if(current_interval == 4){
+1159   3            cycle_output[0] = OFF;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 20  
+
+1160   3            cycle_output[1] = ON;
+1161   3            cycle_output[2] = ON;
+1162   3          }
+1163   2          reset_counter_for_cycle();
+1164   2          ++ current_interval;
+1165   2          if(current_interval == 5)
+1166   2          {
+1167   3            // 计完成周期
+1168   3            if(display_mode_set == combination || display_mode_set == sensor)
+1169   3              finish_cycle_counter ++;
+1170   3            current_interval = 0;
+1171   3          }
+1172   2        }
+1173   1      }
+1174          
+1175          
+1176          // 7
+1177          static void 
+1178          bi_directional_pulsing_driver_init()
+1179          {
+1180   1        cycle_output[0] = ON;
+1181   1        cycle_output[1] = ON;
+1182   1        cycle_output[2] = ON;
+1183   1      }
+1184          static void 
+1185          bi_directional_pulsing_driver()
+1186          {
+1187   1        u8 i,current_progress[3];
+1188   1        u16 current_counter = counter_for_cycle;
+1189   1        u16 progress = (current_counter * 200UL) / cycle_params[5];
+1190   1        if(current_counter <= cycle_params[0]){
+1191   2          current_progress[0] = 100 - progress;
+1192   2          current_progress[1] = 67 - progress;
+1193   2          current_progress[2] = 34 - progress;
+1194   2        }else if(current_counter >  cycle_params[0] && current_counter <= cycle_params[1]){
+1195   2          current_progress[0] = 100 - progress;
+1196   2          current_progress[1] = 67 - progress;
+1197   2          current_progress[2] = progress - 33;
+1198   2        }else if(current_counter >  cycle_params[1] && current_counter <= cycle_params[2]){
+1199   2          current_progress[0] = 100 - progress;
+1200   2          current_progress[1] = progress - 66;
+1201   2          current_progress[2] = progress - 33;
+1202   2        }else if(current_counter >  cycle_params[2] && current_counter <= cycle_params[3]){
+1203   2          current_progress[0] = progress - 100;
+1204   2          current_progress[1] = progress - 66;
+1205   2          current_progress[2] = progress - 33;
+1206   2        }else if(current_counter >  cycle_params[3] && current_counter <= cycle_params[4]){
+1207   2          current_progress[0] = progress - 100;
+1208   2          current_progress[1] = progress - 66;
+1209   2          current_progress[2] = 234 - progress;
+1210   2        }else {
+1211   2          current_progress[0] = progress - 100;
+1212   2          current_progress[1] = 267 - progress;
+1213   2          current_progress[2] = 234 - progress;
+1214   2        }
+1215   1        for (i = 0; i < 3; ++i)
+1216   1        {
+1217   2          lumins_level_logic_prepared[i] = current_progress[i] / fade_in_out_fine_grained_level;
+1218   2          lumins_level_deviation[i] = current_progress[i] - lumins_level_logic_prepared[i] * fade_in_out_fine_grai
+             -ned_level;
+1219   2        }
+1220   1      }
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 21  
+
+1221          static void
+1222          cycle_reached_bi_directional_pulsing(u16 cycle)
+1223          {
+1224   1        // 最大周期
+1225   1        if(cycle >= cycle_params[5])
+1226   1        {
+1227   2          // 计完成周期
+1228   2          if(display_mode_set == combination || display_mode_set == sensor)
+1229   2            finish_cycle_counter ++;
+1230   2          reset_counter_for_cycle();
+1231   2        }
+1232   1      }
+1233          
+1234          
+1235          // 8
+1236          static void 
+1237          bi_directional_chasing_driver(void) {
+1238   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1239   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1240   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1241   1      }
+1242          
+1243          static void
+1244          bi_directional_chasing_driver_init() {
+1245   1        cycle_output[0] = ON;
+1246   1        cycle_output[1] = OFF;
+1247   1        cycle_output[2] = OFF;
+1248   1        current_interval = 0;
+1249   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1250   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1251   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1252   1      }
+1253          
+1254          
+1255          static void 
+1256          cycle_reached_bi_directional_chasing(u16 cycle) {
+1257   1      
+1258   1        if(cycle >= cycle_params[speed_level])
+1259   1        {
+1260   2          if(current_interval == 0){
+1261   3            cycle_output[0] = ON;
+1262   3            cycle_output[1] = ON;
+1263   3            cycle_output[2] = OFF;
+1264   3          }
+1265   2          else if(current_interval == 1){
+1266   3            cycle_output[0] = ON;
+1267   3            cycle_output[1] = ON;
+1268   3            cycle_output[2] = ON;
+1269   3          }
+1270   2          else if(current_interval == 2){
+1271   3            cycle_output[0] = OFF;
+1272   3            cycle_output[1] = ON;
+1273   3            cycle_output[2] = ON;
+1274   3          }
+1275   2          else if(current_interval == 3){
+1276   3            cycle_output[0] = OFF;
+1277   3            cycle_output[1] = OFF;
+1278   3            cycle_output[2] = ON;
+1279   3          }
+1280   2          else if(current_interval == 4){
+1281   3            cycle_output[0] = OFF;
+1282   3            cycle_output[1] = OFF;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 22  
+
+1283   3            cycle_output[2] = OFF;
+1284   3          }
+1285   2          else if(current_interval == 5){
+1286   3            cycle_output[0] = OFF;
+1287   3            cycle_output[1] = OFF;
+1288   3            cycle_output[2] = OFF;
+1289   3          }
+1290   2          else if(current_interval == 6){
+1291   3            cycle_output[0] = OFF;
+1292   3            cycle_output[1] = OFF;
+1293   3            cycle_output[2] = OFF;
+1294   3          }
+1295   2          else if(current_interval == 7){
+1296   3            cycle_output[0] = OFF;
+1297   3            cycle_output[1] = OFF;
+1298   3            cycle_output[2] = ON;
+1299   3          }
+1300   2          else if(current_interval == 8){
+1301   3            cycle_output[0] = OFF;
+1302   3            cycle_output[1] = ON;
+1303   3            cycle_output[2] = ON;
+1304   3          }
+1305   2          else if(current_interval == 9){
+1306   3            cycle_output[0] = ON;
+1307   3            cycle_output[1] = ON;
+1308   3            cycle_output[2] = ON;
+1309   3          }
+1310   2          else if(current_interval == 10){
+1311   3            cycle_output[0] = ON;
+1312   3            cycle_output[1] = ON;
+1313   3            cycle_output[2] = OFF;
+1314   3          }
+1315   2          else if(current_interval == 11){
+1316   3            cycle_output[0] = ON;
+1317   3            cycle_output[1] = OFF;
+1318   3            cycle_output[2] = OFF;
+1319   3          }
+1320   2          else if(current_interval == 12){
+1321   3            cycle_output[0] = OFF;
+1322   3            cycle_output[1] = OFF;
+1323   3            cycle_output[2] = OFF;
+1324   3          }
+1325   2          else if(current_interval == 13){
+1326   3            cycle_output[0] = ON;
+1327   3            cycle_output[1] = OFF;
+1328   3            cycle_output[2] = OFF;
+1329   3          }
+1330   2          reset_counter_for_cycle();
+1331   2          ++ current_interval;
+1332   2          if(current_interval == 14)
+1333   2          {
+1334   3            // 计完成周期
+1335   3            if(display_mode_set == combination || display_mode_set == sensor)
+1336   3              finish_cycle_counter ++;
+1337   3            current_interval = 0;
+1338   3          }
+1339   2        }
+1340   1      }
+1341          
+1342          
+1343          // 9
+1344          static void 
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 23  
+
+1345          pulsing_driver(void) {
+1346   1        u8 i;
+1347   1        for(i = 0; i < 3; i++)
+1348   1          lumins_level_logic_prepared[i] = (dim_in_out_flag == HALF) ? lumins_level_set >> 1 : lumins_level_set;
+1349   1      }
+1350          
+1351          static void
+1352          pulsing_driver_init() {
+1353   1        cycle_output[0] = ON;
+1354   1        cycle_output[1] = ON;
+1355   1        cycle_output[2] = ON;
+1356   1        dim_in_out_flag = HALF;
+1357   1        current_interval = 0;
+1358   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1359   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1360   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1361   1      }
+1362          
+1363          static void 
+1364          cycle_reached_pulsing(u16 cycle) {
+1365   1        if(cycle >= cycle_params[speed_level]){
+1366   2          // 计完成周期
+1367   2          if(display_mode_set == combination || display_mode_set == sensor)
+1368   2              finish_cycle_counter ++;
+1369   2          reverse_dim_in_out_flag();
+1370   2          reset_counter_for_cycle();
+1371   2        }
+1372   1      }
+1373          
+1374          
+1375          // 10
+1376          static void 
+1377          steady_flash_driver(void) {
+1378   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1379   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1380   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1381   1      }
+1382          
+1383          static void
+1384          steady_flash_driver_init() {
+1385   1        cycle_output[0] = ON;
+1386   1        cycle_output[1] = ON;
+1387   1        cycle_output[2] = ON;
+1388   1        current_interval = 0;
+1389   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1390   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1391   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1392   1      }
+1393          
+1394          static void 
+1395          cycle_reached_steady_flash(u16 cycle) {
+1396   1        u8 i;
+1397   1        if(cycle >= cycle_params[speed_level])
+1398   1        {
+1399   2          for(i = 0; i < 3; i++)
+1400   2          {
+1401   3            if(cycle_output[i]) cycle_output[i] = OFF;
+1402   3            else cycle_output[i] = ON;
+1403   3          }
+1404   2          // 计完成周期
+1405   2          if(display_mode_set == combination || display_mode_set == sensor)
+1406   2            finish_cycle_counter ++;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 24  
+
+1407   2          reset_counter_for_cycle();
+1408   2        }
+1409   1      }
+1410          
+1411          // 11
+1412          static void 
+1413          sequential_flashing_driver()
+1414          {
+1415   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1416   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1417   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1418   1      }
+1419          
+1420          static void
+1421          sequential_flashing_driver_init() {
+1422   1        cycle_output[0] = ON;
+1423   1        cycle_output[1] = ON;
+1424   1        cycle_output[2] = ON;
+1425   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1426   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1427   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1428   1        current_interval = 0;
+1429   1      }
+1430          
+1431          static void 
+1432          cycle_reached_sequential_flashing(u16 cycle)
+1433          {
+1434   1        if(cycle >= cycle_params[speed_level])
+1435   1        {
+1436   2          if(current_interval == 0){
+1437   3            cycle_output[0] = OFF;
+1438   3            cycle_output[1] = ON;
+1439   3            cycle_output[2] = OFF;
+1440   3          }
+1441   2          else if(current_interval == 1){
+1442   3            cycle_output[0] = OFF;
+1443   3            cycle_output[1] = OFF;
+1444   3            cycle_output[2] = ON;
+1445   3          }
+1446   2          else if(current_interval == 5){
+1447   3            cycle_output[0] = OFF;
+1448   3            cycle_output[1] = OFF;
+1449   3            cycle_output[2] = ON;
+1450   3          }
+1451   2      
+1452   2          else if(current_interval == 6){
+1453   3            cycle_output[0] = OFF;
+1454   3            cycle_output[1] = ON;
+1455   3            cycle_output[2] = OFF;
+1456   3          }
+1457   2          else if(current_interval == 7){
+1458   3            cycle_output[0] = ON;
+1459   3            cycle_output[1] = OFF;
+1460   3            cycle_output[2] = OFF;
+1461   3          }
+1462   2          else if(current_interval == 11){
+1463   3            cycle_output[0] = ON;
+1464   3            cycle_output[1] = OFF;
+1465   3            cycle_output[2] = OFF;
+1466   3          }
+1467   2          else
+1468   2          {
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 25  
+
+1469   3            cycle_output[0] = OFF;
+1470   3            cycle_output[1] = OFF;
+1471   3            cycle_output[2] = OFF;
+1472   3          }
+1473   2          reset_counter_for_cycle();
+1474   2          ++ current_interval;
+1475   2          if(current_interval == 12)
+1476   2          {
+1477   3            // 计完成周期
+1478   3            if(display_mode_set == combination || display_mode_set == sensor)
+1479   3              finish_cycle_counter ++;
+1480   3            current_interval = 0;
+1481   3          }
+1482   2        }
+1483   1      }
+1484          
+1485          // 12
+1486          // progressive_storbing
+1487          static void 
+1488          progressive_strobing_driver(void) {
+1489   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1490   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1491   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1492   1      }
+1493          
+1494          static void
+1495          progressive_strobing_driver_init() {
+1496   1        cycle_output[0] = ON;
+1497   1        cycle_output[1] = ON;
+1498   1        cycle_output[2] = ON;
+1499   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1500   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1501   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1502   1        current_interval = 0;
+1503   1        strobing_half_cycle_counter = strobing_half_cycle_counter_per_interval[current_interval];
+1504   1      }
+1505          
+1506          static void 
+1507          cycle_reached_progressive_strobing(u16 cycle) {
+1508   1        u8 i;
+1509   1        if(cycle >= cycle_params[current_interval] >> 1)
+1510   1        {
+1511   2          for(i = 0; i < 3; i++)
+1512   2          {
+1513   3            if(cycle_output[i]) cycle_output[i] = 0;
+1514   3            else cycle_output[i] = 1;
+1515   3          }
+1516   2          reset_counter_for_cycle();
+1517   2          --strobing_half_cycle_counter;
+1518   2          if (!strobing_half_cycle_counter) {
+1519   3            ++ current_interval;
+1520   3            if(current_interval == 9)
+1521   3            {
+1522   4              // 计完成周期
+1523   4              if(display_mode_set == combination || display_mode_set == sensor)
+1524   4                finish_cycle_counter ++;
+1525   4              current_interval = 0;
+1526   4            }
+1527   3            strobing_half_cycle_counter = strobing_half_cycle_counter_per_interval[current_interval];
+1528   3          }
+1529   2      
+1530   2        }
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 26  
+
+1531   1      }
+1532          
+1533          // 13
+1534          // bi_directional_storbing
+1535          static void 
+1536          bi_directional_storbing_driver(void) {
+1537   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1538   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1539   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1540   1      }
+1541          
+1542          static void
+1543          bi_directional_storbing_driver_init() {
+1544   1        cycle_output[0] = ON;
+1545   1        cycle_output[1] = OFF;
+1546   1        cycle_output[2] = OFF;
+1547   1        cycle_output_DUTY[0] = ON;
+1548   1        cycle_output_DUTY[1] = OFF;
+1549   1        cycle_output_DUTY[2] = OFF;
+1550   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1551   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1552   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1553   1        current_interval = 0;
+1554   1        strobing_half_cycle_counter = bi_directional_storbing_half_cycle_counter_per_interval[current_interval];
+1555   1      }
+1556          
+1557          static void 
+1558          cycle_reached_bi_directional_storbing(u16 cycle) {
+1559   1        u8 i;
+1560   1        if(cycle >= cycle_params[current_interval] >> 1)
+1561   1        {
+1562   2          for(i = 0; i < 3; i++)
+1563   2          {
+1564   3            if(cycle_output_DUTY[i] == OFF)
+1565   3            {
+1566   4              cycle_output[i] = 0;
+1567   4            }
+1568   3            else
+1569   3            {
+1570   4              if(cycle_output[i]) cycle_output[i] = 0;
+1571   4              else cycle_output[i] = 1;
+1572   4            }
+1573   3            
+1574   3          }
+1575   2          if(current_interval == 0)
+1576   2          {
+1577   3            cycle_output_DUTY[0] = ON;
+1578   3            cycle_output_DUTY[1] = ON;
+1579   3            cycle_output_DUTY[2] = OFF;
+1580   3          }
+1581   2          else if(current_interval == 1)
+1582   2          {
+1583   3            cycle_output_DUTY[0] = ON;
+1584   3            cycle_output_DUTY[1] = ON;
+1585   3            cycle_output_DUTY[2] = ON;
+1586   3          }
+1587   2          else if(current_interval == 2)
+1588   2          {
+1589   3            cycle_output_DUTY[0] = ON;
+1590   3            cycle_output_DUTY[1] = ON;
+1591   3            cycle_output_DUTY[2] = ON;
+1592   3          }
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 27  
+
+1593   2          else if(current_interval == 3)
+1594   2          {
+1595   3            cycle_output_DUTY[0] = ON;
+1596   3            cycle_output_DUTY[1] = ON;
+1597   3            cycle_output_DUTY[2] = ON;
+1598   3          }
+1599   2          else if(current_interval == 4)
+1600   2          {
+1601   3            cycle_output_DUTY[0] = ON;
+1602   3            cycle_output_DUTY[1] = ON;
+1603   3            cycle_output_DUTY[2] = OFF;
+1604   3          }
+1605   2          else if(current_interval == 5)
+1606   2          {
+1607   3            cycle_output_DUTY[0] = ON;
+1608   3            cycle_output_DUTY[1] = OFF;
+1609   3            cycle_output_DUTY[2] = OFF;
+1610   3          }
+1611   2          else if(current_interval == 6)
+1612   2          {
+1613   3            cycle_output_DUTY[0] = OFF;
+1614   3            cycle_output_DUTY[1] = OFF;
+1615   3            cycle_output_DUTY[2] = OFF;
+1616   3          }
+1617   2          else if(current_interval == 7)
+1618   2          {
+1619   3            cycle_output_DUTY[0] = ON;
+1620   3            cycle_output_DUTY[1] = OFF;
+1621   3            cycle_output_DUTY[2] = OFF;
+1622   3          }
+1623   2              --strobing_half_cycle_counter;
+1624   2          if (!strobing_half_cycle_counter) {
+1625   3            ++ current_interval;
+1626   3            if(current_interval == 8 || (display_mode_set == sensor && current_interval == 4))
+1627   3            {
+1628   4              current_interval = 0;
+1629   4              // 计完成周期
+1630   4              if(display_mode_set == combination || display_mode_set == sensor)
+1631   4                finish_cycle_counter ++;
+1632   4            }
+1633   3            strobing_half_cycle_counter = strobing_half_cycle_counter_per_interval[current_interval];
+1634   3          }
+1635   2          reset_counter_for_cycle();
+1636   2      
+1637   2        }
+1638   1      }
+1639          // 14
+1640          // fade_in_fade_out
+1641          static void 
+1642          fade_in_fade_out_driver(void) {
+1643   1        u8 i;
+1644   1        u16 current_counter = counter_for_cycle;
+1645   1        for(i = 0; i < 3; i++)
+1646   1        {
+1647   2          u16 progress = (current_counter * 100UL) / (cycle_for_fade_in_fade_out[speed_level]) ;
+1648   2          u16 reversed_cycle_rate_of_progress = 100 - progress;
+1649   2      
+1650   2          if (fade_in_out_flag[i] == RISE) {
+1651   3          // 0 -> 10
+1652   3            lumins_level_logic_prepared[i] = progress / fade_in_out_fine_grained_level;
+1653   3            lumins_level_deviation[i] = progress - lumins_level_logic_prepared[i] * fade_in_out_fine_grained_level;
+1654   3          } else { // FALL
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 28  
+
+1655   3          // 10 -> 0
+1656   3            lumins_level_logic_prepared[i] = reversed_cycle_rate_of_progress / fade_in_out_fine_grained_level;
+1657   3            lumins_level_deviation[i] = reversed_cycle_rate_of_progress - lumins_level_logic_prepared[i] * fade_in_
+             -out_fine_grained_level;
+1658   3          }
+1659   2        }
+1660   1      }
+1661          
+1662          static void
+1663          fade_in_fade_out_driver_init() {
+1664   1        cycle_output[0] = ON;
+1665   1        cycle_output[1] = ON;
+1666   1        cycle_output[2] = ON;
+1667   1        fade_in_out_flag[0] = RISE;
+1668   1        fade_in_out_flag[1] = RISE;
+1669   1        fade_in_out_flag[2] = RISE; 
+1670   1        lumins_level_logic_prepared[0] = lumins_level_min;
+1671   1        lumins_level_logic_prepared[1] = lumins_level_min;
+1672   1        lumins_level_logic_prepared[2] = lumins_level_min;
+1673   1      }
+1674          
+1675          static void 
+1676          cycle_reached_fade_in_fade_out(u16 cycle) {
+1677   1        u8 i;
+1678   1        if(cycle >= cycle_params[speed_level])
+1679   1        {
+1680   2          for(i = 0; i < 3; i++)
+1681   2          {
+1682   3            if(fade_in_out_flag[i]) fade_in_out_flag[i] = 0;
+1683   3            else fade_in_out_flag[i] = 1;
+1684   3          }
+1685   2          // 计完成周期
+1686   2          if(display_mode_set == combination || display_mode_set == sensor)
+1687   2              finish_cycle_counter ++;
+1688   2          reset_counter_for_cycle();
+1689   2        }
+1690   1      }
+1691          
+1692          
+1693          
+1694          // 15
+1695          // steady_burn
+1696          static void 
+1697          steady_burn_driver(void) {
+1698   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1699   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1700   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1701   1      }
+1702          
+1703          static void
+1704          steady_burn_driver_init() {
+1705   1        cycle_output[0] = ON;
+1706   1        cycle_output[1] = ON;
+1707   1        cycle_output[2] = ON;
+1708   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1709   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1710   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1711   1      }
+1712          
+1713          /*
+1714          * Sensor Mode
+1715          */
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 29  
+
+1716          
+1717          static void 
+1718          sensor_driver() {
+1719   1        u8 i;
+1720   1        for(i = 0; i < 3; i++)
+1721   1        {
+1722   2          if(lumins_level_logic_prepared[i] < 1)
+1723   2            lumins_level_logic_prepared[i] = 1;
+1724   2        }
+1725   1      }
+1726          
+1727          static void
+1728          sensor_driver_init() {
+1729   1        current_interval = 0;
+1730   1        cycle_output[0] = ON;
+1731   1        cycle_output[1] = ON;
+1732   1        cycle_output[2] = ON;
+1733   1        lumins_level_logic_prepared[0] = lumins_level_set;
+1734   1        lumins_level_logic_prepared[1] = lumins_level_set;
+1735   1        lumins_level_logic_prepared[2] = lumins_level_set;
+1736   1      }
+1737          
+1738          static void 
+1739          cycle_reached_sensor(u16 cycle)
+1740          {
+1741   1        if(cycle >= cycle_params[current_interval])
+1742   1        {
+1743   2          if(current_interval == 0){
+1744   3            lumins_level_logic_prepared[0] = lumins_level_set;
+1745   3            lumins_level_logic_prepared[1] = lumins_level_set;
+1746   3            lumins_level_logic_prepared[2] = lumins_level_set;
+1747   3          }
+1748   2          else if(current_interval == 1){
+1749   3            lumins_level_logic_prepared[0] = lumins_level_set;
+1750   3            lumins_level_logic_prepared[1] = lumins_level_set;
+1751   3            lumins_level_logic_prepared[2] = lumins_level_set;
+1752   3          }
+1753   2          else if(current_interval == 2){
+1754   3            lumins_level_logic_prepared[0] = lumins_level_set;
+1755   3            lumins_level_logic_prepared[1] = lumins_level_set;
+1756   3            lumins_level_logic_prepared[2] = lumins_level_set;
+1757   3          }
+1758   2          else if(current_interval == 3){
+1759   3            lumins_level_logic_prepared[0] = lumins_level_set;
+1760   3            lumins_level_logic_prepared[1] = lumins_level_set;
+1761   3            lumins_level_logic_prepared[2] = lumins_level_set;
+1762   3          }
+1763   2          else if(current_interval == 4){
+1764   3            lumins_level_logic_prepared[0] = lumins_level_set;
+1765   3            lumins_level_logic_prepared[1] = lumins_level_set;
+1766   3            lumins_level_logic_prepared[2] = lumins_level_set;
+1767   3          }
+1768   2          else if(current_interval == 5){
+1769   3            lumins_level_logic_prepared[0] = lumins_level_set - 3;
+1770   3            lumins_level_logic_prepared[1] = lumins_level_set - 3;
+1771   3            lumins_level_logic_prepared[2] = lumins_level_set - 3;
+1772   3          }
+1773   2      
+1774   2          else if(current_interval == 6){
+1775   3            lumins_level_logic_prepared[0] = lumins_level_set;
+1776   3            lumins_level_logic_prepared[1] = lumins_level_set;
+1777   3            lumins_level_logic_prepared[2] = lumins_level_set;
+C51 COMPILER V9.52.0.0   DISPLAY                                                           09/07/2015 15:57:18 PAGE 30  
+
+1778   3          }
+1779   2          reset_counter_for_cycle();
+1780   2          ++ current_interval;
+1781   2          if(current_interval == 7)
+1782   2            current_interval = 0;
+1783   2        }
+1784   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   4310    ----
+   CONSTANT SIZE    =    934    ----
+   XDATA SIZE       =    128    ----
+   PDATA SIZE       =     62      29
+   DATA SIZE        =      6    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      4       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

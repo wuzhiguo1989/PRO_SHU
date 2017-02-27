@@ -1,0 +1,306 @@
+C51 COMPILER V9.52.0.0   E2PROM                                                            11/08/2016 20:38:40 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE E2PROM
+OBJECT MODULE PLACED IN .\list\e2prom.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE e2prom.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\e2prom.lst) TABS(2) OBJECT(.\
+                    -list\e2prom.obj)
+
+line level    source
+
+   1          #include "e2prom.h"
+   2          #include "intrins.h"
+   3          #include "dwscreen.h"
+   4          #include "task.h"
+   5          #include "alert.h"
+   6          #include "process.h"
+   7          
+   8          u32 password_adminstrator = 0;
+   9          u32 password_guest = 0;
+  10          u32 password_super = 0;
+  11          
+  12          #define AVAILBALE_TIME 6
+  13          
+  14          static void DisableEEPROM(void)
+  15          {
+  16   1          IAP_CONTR = 0;          //禁止ISP/IAP操作
+  17   1          IAP_CMD   = 0;          //去除ISP/IAP命令
+  18   1          IAP_TRIG  = 0;          //防止ISP/IAP命令误触发
+  19   1          IAP_ADDRH = 0xff;       //清0地址高字节
+  20   1          IAP_ADDRL = 0xff;       //清0地址低字节，指向非EEPROM区，防止误操作
+  21   1      }
+  22          static u8 EEPROM_read(u16 EE_address)
+  23          {
+  24   1          u8 dat;
+  25   1          IAP_CONTR = ENABLE_IAP;
+  26   1          IAP_CMD = CMD_READ;
+  27   1          IAP_ADDRL = EE_address;
+  28   1          IAP_ADDRH = EE_address >> 8;
+  29   1          IAP_TRIG = 0x5a;
+  30   1          IAP_TRIG = 0xa5;
+  31   1          _nop_();
+  32   1          dat = IAP_DATA;
+  33   1          DisableEEPROM();
+  34   1          return dat;
+  35   1      }
+  36          
+  37          static void EEPROM_SectorErase(u16 EE_address)
+  38          {
+  39   1          IAP_CONTR = ENABLE_IAP;  //设置等待时间，允许ISP/IAP操作，送一次就够
+  40   1          IAP_CMD = CMD_ERASE;     //送字节写命令，命令不需改变时，不需重新送命令
+  41   1          IAP_ADDRL = EE_address;
+  42   1          IAP_ADDRH = EE_address >> 8;
+  43   1          IAP_TRIG = 0x5a;
+  44   1          IAP_TRIG = 0xa5;
+  45   1          _nop_();
+  46   1          DisableEEPROM();
+  47   1      }
+  48          
+  49          static void EEPROM_write(u16 EE_address,u8 dat)
+  50          {
+  51   1      
+  52   1          IAP_CONTR = ENABLE_IAP;  //设置等待时间，允许ISP/IAP操作，送一次就够
+  53   1          IAP_CMD = CMD_PROGRAM;   //送字节写命令，命令不需改变时，不需重新送命令
+  54   1          IAP_ADDRL = EE_address;
+C51 COMPILER V9.52.0.0   E2PROM                                                            11/08/2016 20:38:40 PAGE 2   
+
+  55   1          IAP_ADDRH = EE_address >> 8;
+  56   1        IAP_DATA = dat;
+  57   1          IAP_TRIG = 0x5a;
+  58   1          IAP_TRIG = 0xa5;
+  59   1          _nop_();
+  60   1          DisableEEPROM();
+  61   1      }
+  62          
+  63          void password_init()
+  64          {
+  65   1          // 检查密码是否被修改过  
+  66   1          if(EEPROM_read(ADDRESS_FOR_PASSWORD_MODIFY_FLAG) == 0xFF)
+  67   1          {
+  68   2          // 从INIT中取
+  69   2               password_adminstrator =  EEPROM_read(ADDRESS_FOR_PASSWORD_ADMIN_INIT) << 24 | EEPROM_read(ADDRESS
+             -_FOR_PASSWORD_ADMIN_INIT + 1) << 16 | EEPROM_read(ADDRESS_FOR_PASSWORD_ADMIN_INIT + 2) << 8 | EEPROM_read(ADDRESS_FOR_PA
+             -SSWORD_ADMIN_INIT + 3);
+  70   2               password_guest = EEPROM_read(ADDRESS_FOR_PASSWORD_GUEST_INIT) << 24 | EEPROM_read(ADDRESS_FOR_PAS
+             -SWORD_GUEST_INIT + 1) << 16 | EEPROM_read(ADDRESS_FOR_PASSWORD_GUEST_INIT + 2) << 8 | EEPROM_read(ADDRESS_FOR_PASSWORD_G
+             -UEST_INIT + 3);
+  71   2          }
+  72   1          else
+  73   1          {
+  74   2          // 从SET中取
+  75   2               password_adminstrator =  EEPROM_read(ADDRESS_FOR_PASSWORD_ADMIN_SET) << 24 | EEPROM_read(ADDRESS_
+             -FOR_PASSWORD_ADMIN_SET + 1) << 16 | EEPROM_read(ADDRESS_FOR_PASSWORD_ADMIN_SET + 2) << 8 | EEPROM_read(ADDRESS_FOR_PASSW
+             -ORD_ADMIN_SET + 3);
+  76   2               password_guest = EEPROM_read(ADDRESS_FOR_PASSWORD_GUEST_SET) << 24 | EEPROM_read(ADDRESS_FOR_PASS
+             -WORD_GUEST_SET + 1) << 16 | EEPROM_read(ADDRESS_FOR_PASSWORD_GUEST_SET + 2) << 8 | EEPROM_read(ADDRESS_FOR_PASSWORD_GUES
+             -T_SET + 3);
+  77   2          }
+  78   1          password_super = EEPROM_read(ADDRESS_FOR_PASSWORD_SUPER_INIT) << 24 | EEPROM_read(ADDRESS_FOR_PASSWORD
+             -_SUPER_INIT + 1) << 16 | EEPROM_read(ADDRESS_FOR_PASSWORD_SUPER_INIT + 2) << 8 | EEPROM_read(ADDRESS_FOR_PASSWORD_SUPER_
+             -INIT + 3);
+  79   1      }
+  80          
+  81          void store_all_password()
+  82          {
+  83   1          EEPROM_SectorErase(ADDRESS_FOR_PASSWORD_MODIFY_FLAG);
+  84   1          EEPROM_write(ADDRESS_FOR_PASSWORD_MODIFY_FLAG, 1);
+  85   1          EEPROM_write(ADDRESS_FOR_PASSWORD_ADMIN_SET, password_adminstrator >> 24);
+  86   1          EEPROM_write(ADDRESS_FOR_PASSWORD_ADMIN_SET + 1, password_adminstrator >> 16);
+  87   1          EEPROM_write(ADDRESS_FOR_PASSWORD_ADMIN_SET + 2, password_adminstrator >> 8);
+  88   1          EEPROM_write(ADDRESS_FOR_PASSWORD_ADMIN_SET + 3, password_adminstrator);
+  89   1          EEPROM_write(ADDRESS_FOR_PASSWORD_GUEST_SET, password_guest >> 24);
+  90   1          EEPROM_write(ADDRESS_FOR_PASSWORD_GUEST_SET + 1, password_guest >> 16);
+  91   1          EEPROM_write(ADDRESS_FOR_PASSWORD_GUEST_SET + 2, password_guest >> 8);
+  92   1          EEPROM_write(ADDRESS_FOR_PASSWORD_GUEST_SET + 3, password_guest);
+  93   1      }
+  94          
+  95          void reset_all_password()
+  96          {
+  97   1          EEPROM_SectorErase(ADDRESS_FOR_PASSWORD_MODIFY_FLAG);
+  98   1          password_adminstrator =  EEPROM_read(ADDRESS_FOR_PASSWORD_ADMIN_INIT) << 24 | EEPROM_read(ADDRESS_FOR_
+             -PASSWORD_ADMIN_INIT + 1) << 16 | EEPROM_read(ADDRESS_FOR_PASSWORD_ADMIN_INIT + 2) << 8 | EEPROM_read(ADDRESS_FOR_PASSWOR
+             -D_ADMIN_INIT + 3);
+  99   1          password_guest = EEPROM_read(ADDRESS_FOR_PASSWORD_GUEST_INIT) << 24 | EEPROM_read(ADDRESS_FOR_PASSWORD
+             -_GUEST_INIT + 1) << 16 | EEPROM_read(ADDRESS_FOR_PASSWORD_GUEST_INIT + 2) << 8 | EEPROM_read(ADDRESS_FOR_PASSWORD_GUEST_
+             -INIT + 3);
+ 100   1      }
+ 101          
+ 102          void param_init()
+C51 COMPILER V9.52.0.0   E2PROM                                                            11/08/2016 20:38:40 PAGE 3   
+
+ 103          {
+ 104   1          // 检查密码是否被修改过  
+ 105   1          if(EEPROM_read(ADDRESS_FOR_PARAM_MODIFY_FLAG) == 0xFF)
+ 106   1          {
+ 107   2          // 从INIT中取
+ 108   2              time_fan_delay_stop =  EEPROM_read(ADDRESS_FOR_PARAM_INIT);
+ 109   2              time_fan_delay_full = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 1);
+ 110   2              time_feed_intercept = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 2);
+ 111   2              time_spray_wash = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 3);
+ 112   2              time_spray_wash_between = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 4);
+ 113   2              counter_for_spray_wash = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 5);
+ 114   2              tem_alter = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 6);
+ 115   2              tem_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 7);
+ 116   2              // time_feed_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 8);
+ 117   2              time_spray_wash_before_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 8);
+ 118   2              time_spray_wash_between_before_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 9); 
+ 119   2              // time_feed_suction = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 2);
+ 120   2              // time_feed_discharge = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 3);
+ 121   2      
+ 122   2              // time_feed_lack = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 8);
+ 123   2              // counter_for_lack_alter = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 9);
+ 124   2      
+ 125   2              // feed_lack_signal = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 13);
+ 126   2              updata_data_from_dwscreen();
+ 127   2          }
+ 128   1          else
+ 129   1          {
+ 130   2          // 从SET中取
+ 131   2              time_fan_delay_stop =  EEPROM_read(ADDRESS_FOR_PARAM_SET + 1);
+ 132   2              time_fan_delay_full = EEPROM_read(ADDRESS_FOR_PARAM_SET + 2);
+ 133   2              // time_feed_suction = EEPROM_read(ADDRESS_FOR_PARAM_SET + 3);
+ 134   2              // time_feed_discharge = EEPROM_read(ADDRESS_FOR_PARAM_SET + 4);
+ 135   2              time_feed_intercept = EEPROM_read(ADDRESS_FOR_PARAM_SET + 3);
+ 136   2              time_spray_wash = EEPROM_read(ADDRESS_FOR_PARAM_SET + 4);
+ 137   2              time_spray_wash_between = EEPROM_read(ADDRESS_FOR_PARAM_SET + 5);
+ 138   2              counter_for_spray_wash = EEPROM_read(ADDRESS_FOR_PARAM_SET + 6); 
+ 139   2              // time_feed_lack = EEPROM_read(ADDRESS_FOR_PARAM_SET + 9);
+ 140   2              // counter_for_lack_alter = EEPROM_read(ADDRESS_FOR_PARAM_SET + 10);
+ 141   2              tem_alter = EEPROM_read(ADDRESS_FOR_PARAM_SET + 7);
+ 142   2              tem_stop = EEPROM_read(ADDRESS_FOR_PARAM_SET + 8);
+ 143   2              // time_feed_stop = EEPROM_read(ADDRESS_FOR_PARAM_SET + 9);
+ 144   2              // feed_lack_signal = EEPROM_read(ADDRESS_FOR_PARAM_SET + 14);
+ 145   2              time_spray_wash_before_stop = EEPROM_read(ADDRESS_FOR_PARAM_SET + 9);
+ 146   2              time_spray_wash_between_before_stop = EEPROM_read(ADDRESS_FOR_PARAM_SET + 10); 
+ 147   2              updata_data_from_dwscreen();
+ 148   2          }    
+ 149   1      }
+ 150          
+ 151          void store_all_para()
+ 152          {
+ 153   1          EEPROM_SectorErase(ADDRESS_FOR_PARAM_MODIFY_FLAG);
+ 154   1          EEPROM_write(ADDRESS_FOR_PARAM_MODIFY_FLAG, 1);
+ 155   1          // ADDRESS_FOR_PARAM_MODIFY_FLAG == ADDRESS_FOR_PARAM_SET
+ 156   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 1, time_fan_delay_stop);
+ 157   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 2, time_fan_delay_full);
+ 158   1          // EEPROM_write(ADDRESS_FOR_PARAM_SET + 3, time_feed_suction);
+ 159   1          // EEPROM_write(ADDRESS_FOR_PARAM_SET + 4, time_feed_discharge);
+ 160   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 3, time_feed_intercept);
+ 161   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 4, time_spray_wash);
+ 162   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 5, time_spray_wash_between);
+ 163   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 6, counter_for_spray_wash);
+ 164   1          // EEPROM_write(ADDRESS_FOR_PARAM_SET + 9, time_feed_lack);
+C51 COMPILER V9.52.0.0   E2PROM                                                            11/08/2016 20:38:40 PAGE 4   
+
+ 165   1          // EEPROM_write(ADDRESS_FOR_PARAM_SET + 10, counter_for_lack_alter);
+ 166   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 7, tem_alter);
+ 167   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 8, tem_stop);
+ 168   1          // EEPROM_write(ADDRESS_FOR_PARAM_SET + 9, time_feed_stop);
+ 169   1          // EEPROM_write(ADDRESS_FOR_PARAM_SET + 14, feed_lack_signal);
+ 170   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 9, time_spray_wash_before_stop);
+ 171   1          EEPROM_write(ADDRESS_FOR_PARAM_SET + 10, time_spray_wash_between_before_stop);
+ 172   1      }
+ 173          
+ 174          void reset_all_para()
+ 175          {
+ 176   1          EEPROM_SectorErase(ADDRESS_FOR_PARAM_MODIFY_FLAG);
+ 177   1          time_fan_delay_stop =  EEPROM_read(ADDRESS_FOR_PARAM_INIT);
+ 178   1          time_fan_delay_full = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 1);
+ 179   1          // time_feed_suction = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 2);
+ 180   1          // time_feed_discharge = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 3);
+ 181   1          time_feed_intercept = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 2);
+ 182   1          time_spray_wash = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 3);
+ 183   1          time_spray_wash_between = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 4);
+ 184   1          counter_for_spray_wash = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 5); 
+ 185   1          // time_feed_lack = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 8);
+ 186   1          // counter_for_lack_alter = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 9);
+ 187   1          tem_alter = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 6);
+ 188   1          tem_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 7);
+ 189   1          // time_feed_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 8);
+ 190   1          // feed_lack_signal = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 13);
+ 191   1          time_spray_wash_before_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 8);
+ 192   1          time_spray_wash_between_before_stop = EEPROM_read(ADDRESS_FOR_PARAM_INIT + 9);
+ 193   1      }
+ 194          
+ 195          void Delay()      //@24.000MHz
+ 196          {
+ 197   1          unsigned char i, j, k;
+ 198   1      
+ 199   1          _nop_();
+ 200   1          _nop_();
+ 201   1          i = 92;
+ 202   1          j = 50;
+ 203   1          k = 238;
+ 204   1          do
+ 205   1          {
+ 206   2              do
+ 207   2              {
+ 208   3                  while (--k);
+ 209   3              } while (--j);
+ 210   2          } while (--i);
+ 211   1      }
+ 212          
+ 213          void available_system_set()
+ 214          {
+ 215   1          if(EEPROM_read(ADDRESS_FOR_VAILABLE_FLAG) == 0xFF){
+ 216   2              // 无需比较时间、同步图标
+ 217   2              syc_available_siganl(0);
+ 218   2              sigal_available = 0;
+ 219   2              display_init_deadline(16, 1, 1);
+ 220   2              page_back_home(); 
+ 221   2          } else {
+ 222   2              // 读时间
+ 223   2              syc_available_siganl(1); 
+ 224   2              time_year = EEPROM_read(ADDRESS_FOR_VAILABLE_SET + 1);
+ 225   2              time_month = EEPROM_read(ADDRESS_FOR_VAILABLE_SET + 2);
+ 226   2              time_day = EEPROM_read(ADDRESS_FOR_VAILABLE_SET + 3);
+C51 COMPILER V9.52.0.0   E2PROM                                                            11/08/2016 20:38:40 PAGE 5   
+
+ 227   2              display_init_deadline(time_year, time_month, time_day);
+ 228   2              sigal_available = 0;
+ 229   2              Delay();          
+ 230   2              get_RTC_from_screen(); 
+ 231   2          }
+ 232   1      }
+ 233          
+ 234          
+ 235          void store_available_set(u8 *time_start)
+ 236          {
+ 237   1          EEPROM_SectorErase(ADDRESS_FOR_VAILABLE_FLAG);
+ 238   1          EEPROM_write(ADDRESS_FOR_VAILABLE_FLAG, 1);
+ 239   1          // 处理时间
+ 240   1                  TX_write2buff(&COM1, time_start[8]);
+ 241   1              TX_write2buff(&COM1, time_start[10]);
+ 242   1              TX_write2buff(&COM1, time_start[12]);
+ 243   1          // 年
+ 244   1          EEPROM_write(ADDRESS_FOR_VAILABLE_SET + 1, time_start[8]);
+ 245   1          // 月
+ 246   1          EEPROM_write(ADDRESS_FOR_VAILABLE_SET + 2, time_start[10]);
+ 247   1          // 日 
+ 248   1          EEPROM_write(ADDRESS_FOR_VAILABLE_SET + 3, time_start[12]);
+ 249   1      }
+ 250          
+ 251          void reset_available_set()
+ 252          {
+ 253   1          syc_available_siganl(0);
+ 254   1          EEPROM_SectorErase(ADDRESS_FOR_VAILABLE_FLAG);
+ 255   1      }
+ 256          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1478    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     12       3
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

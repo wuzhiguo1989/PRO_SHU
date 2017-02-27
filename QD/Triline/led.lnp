@@ -1,0 +1,11 @@
+"STARTUP.obj",
+"shared.obj",
+"adc.obj",
+"display.obj",
+"sync.obj",
+"uart.obj",
+"com_1.obj",
+"lm567.obj" 
+TO "led" 
+
+REMOVEUNUSED 

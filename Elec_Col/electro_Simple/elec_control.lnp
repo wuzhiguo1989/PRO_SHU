@@ -1,0 +1,15 @@
+"STARTUP.obj",
+"tm1727.obj",
+"jl17467pqw.obj",
+"main.obj",
+"share.obj",
+"adc.obj",
+"sync.obj",
+"task.obj",
+"light.obj",
+"time.obj",
+"control.obj",
+"e2prom.obj",
+"beep.obj" 
+TO "elec_control" 
+RAMSIZE(256) 

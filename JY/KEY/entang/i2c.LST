@@ -1,0 +1,266 @@
+C51 COMPILER V9.52.0.0   I2C                                                               01/18/2016 20:03:25 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE I2C
+OBJECT MODULE PLACED IN i2c.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE i2c.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "i2c.h"
+   2          #include "stc15wxxxx.h"
+   3          #include "ble.h"
+   4          
+   5          /***********************************************************************************
+   6           * Function Prototypes
+   7           ***********************************************************************************/
+   8          void _i2c_start(void);
+   9          void _i2c_stop(void);
+  10          void _i2c_ack_send(void);
+  11          unsigned char _i2c_ack_detect(void);
+  12          unsigned char _i2c_write_byte(unsigned char);
+  13          unsigned char _i2c_read_byte(void);
+  14          
+  15          
+  16          void Delay_us()
+  17          {
+  18   1        unsigned char i, j;
+  19   1      
+  20   1          i = 24;
+  21   1          j = 85;
+  22   1          do
+  23   1          {
+  24   2              while (--j);
+  25   2          } while (--i);
+  26   1      }
+  27          
+  28          
+  29          void I2C_DELAY()
+  30          {       
+  31   1        Delay_us();
+  32   1      }
+  33          void I2C_DELAY_LONG()
+  34          { 
+  35   1        Delay_us();
+  36   1      }
+  37          
+  38          
+  39          void _i2c_start(void)
+  40          {
+  41   1        SDA_HIGH();
+  42   1        I2C_DELAY();
+  43   1        I2C_DELAY();
+  44   1        SCL_HIGH();
+  45   1        I2C_DELAY();
+  46   1        I2C_DELAY();
+  47   1        SDA_LOW();
+  48   1        I2C_DELAY();
+  49   1        SCL_LOW();
+  50   1        I2C_DELAY();
+  51   1      }
+  52          
+  53          void _i2c_stop(void)
+  54          {
+  55   1        SDA_LOW();
+C51 COMPILER V9.52.0.0   I2C                                                               01/18/2016 20:03:25 PAGE 2   
+
+  56   1        I2C_DELAY();
+  57   1        SCL_HIGH();
+  58   1        I2C_DELAY();
+  59   1        SDA_HIGH();
+  60   1        I2C_DELAY_LONG();
+  61   1      }
+  62          
+  63          unsigned char _i2c_write_byte(unsigned char dat)
+  64          {
+  65   1        unsigned char i;
+  66   1      
+  67   1        for(i = 0; i< 8; i++)
+  68   1        {
+  69   2          if((dat << i) & 0x80)
+  70   2          {
+  71   3            SDA_HIGH();
+  72   3          }
+  73   2          else
+  74   2          {
+  75   3            SDA_LOW();
+  76   3          }
+  77   2          I2C_DELAY();
+  78   2          SCL_HIGH();
+  79   2          I2C_DELAY();
+  80   2          SCL_LOW();
+  81   2          I2C_DELAY();
+  82   2        }
+  83   1      
+  84   1        if(_i2c_ack_detect()) {
+  85   2          return ERROR_CODE_FALSE;
+  86   2        }
+  87   1        return ERROR_CODE_TRUE;
+  88   1      }
+  89          
+  90          
+  91          
+  92          unsigned char _i2c_ack_detect(void)
+  93          {
+  94   1        
+  95   1        I2C_DELAY();
+  96   1        SCL_HIGH();
+  97   1        I2C_DELAY();
+  98   1        if (SDA)
+  99   1          return ERROR_CODE_FALSE; 
+ 100   1        I2C_DELAY();
+ 101   1        SCL_LOW();
+ 102   1        return ERROR_CODE_TRUE; // true
+ 103   1      }
+ 104          
+ 105          void _i2c_ack_send(void)
+ 106          {
+ 107   1        SDA_LOW();
+ 108   1        I2C_DELAY();
+ 109   1        SCL_HIGH();
+ 110   1        I2C_DELAY();
+ 111   1        SCL_LOW();
+ 112   1        I2C_DELAY();
+ 113   1      }
+ 114          
+ 115          void _i2c_nack_send(void)
+ 116          {
+ 117   1        SDA_HIGH();
+C51 COMPILER V9.52.0.0   I2C                                                               01/18/2016 20:03:25 PAGE 3   
+
+ 118   1        I2C_DELAY();
+ 119   1        SCL_HIGH();
+ 120   1        I2C_DELAY();
+ 121   1        SCL_LOW();
+ 122   1        I2C_DELAY();
+ 123   1      }
+ 124          
+ 125          
+ 126          unsigned char _i2c_read_byte(void)
+ 127          {
+ 128   1        unsigned char i, dat;
+ 129   1        dat = 0;
+ 130   1        
+ 131   1        for(i = 0; i< 8; i++){
+ 132   2          dat <<= 1;
+ 133   2          I2C_DELAY();
+ 134   2          SCL_HIGH();
+ 135   2          I2C_DELAY();
+ 136   2          if (SDA) 
+ 137   2            dat |= 0x01;
+ 138   2          SCL_LOW();
+ 139   2          I2C_DELAY();
+ 140   2        }
+ 141   1        _i2c_nack_send();
+ 142   1        return dat;
+ 143   1      }
+ 144          
+ 145          unsigned char _i2c_read_byte_last(void)
+ 146          {
+ 147   1        unsigned char i, dat;
+ 148   1        dat = 0;
+ 149   1        SDA_HIGH();
+ 150   1        for(i = 0; i< 8; i++){
+ 151   2          dat <<= 1;
+ 152   2          I2C_DELAY();
+ 153   2          SCL_HIGH();
+ 154   2          I2C_DELAY();
+ 155   2          if (SDA) 
+ 156   2            dat |= 0x01;
+ 157   2          SCL_LOW();
+ 158   2          I2C_DELAY();
+ 159   2        }
+ 160   1         _i2c_nack_send();
+ 161   1        return dat;
+ 162   1      }
+ 163          
+ 164          unsigned char _i2c_write(unsigned char device_addr, unsigned char sub_addr, unsigned char *buff, int ByteN
+             -o)
+ 165          {
+ 166   1        unsigned char i;
+ 167   1        _i2c_start();
+ 168   1        I2C_DELAY();
+ 169   1        if(_i2c_write_byte(device_addr)) {
+ 170   2          _i2c_stop();
+ 171   2          return ERROR_CODE_WRITE_ADDR;
+ 172   2        }
+ 173   1        
+ 174   1        if(_i2c_write_byte(sub_addr)) {
+ 175   2          _i2c_stop();
+ 176   2          return ERROR_CODE_WRITE_ADDR;
+ 177   2        }
+ 178   1        
+C51 COMPILER V9.52.0.0   I2C                                                               01/18/2016 20:03:25 PAGE 4   
+
+ 179   1        for(i = 0; i<ByteNo; i++) {
+ 180   2          if(_i2c_write_byte(buff[i])) {
+ 181   3            _i2c_stop();
+ 182   3            return ERROR_CODE_WRITE_DATA;
+ 183   3          }
+ 184   2        }
+ 185   1      
+ 186   1        I2C_DELAY();
+ 187   1        _i2c_stop();
+ 188   1        I2C_DELAY_LONG();
+ 189   1        return ERROR_CODE_TRUE;
+ 190   1      }
+ 191          
+ 192          unsigned char _i2c_read(unsigned char device_addr, unsigned char sub_addr, unsigned char *buff, int ByteNo
+             -)
+ 193          {
+ 194   1        
+ 195   1        unsigned char i;
+ 196   1        _i2c_start();
+ 197   1        I2C_DELAY();
+ 198   1      
+ 199   1        if(_i2c_write_byte(device_addr)) {
+ 200   2          _i2c_stop();
+ 201   2          return ERROR_CODE_READ_ADDR;
+ 202   2        }
+ 203   1        
+ 204   1        if(_i2c_write_byte(sub_addr)) {
+ 205   2          _i2c_stop();
+ 206   2          return ERROR_CODE_READ_ADDR;
+ 207   2        }
+ 208   1        //_i2c_stop();
+ 209   1        _i2c_start();
+ 210   1        I2C_DELAY();
+ 211   1        if(_i2c_write_byte(device_addr+1)) {
+ 212   2          _i2c_stop();
+ 213   2          return ERROR_CODE_READ_ADDR;
+ 214   2        }
+ 215   1      
+ 216   1        for(i = 0; i<(ByteNo-1); i++) 
+ 217   1          buff[i] = _i2c_read_byte();
+ 218   1        buff[ByteNo-1] = _i2c_read_byte_last();
+ 219   1        
+ 220   1        I2C_DELAY();
+ 221   1        I2C_DELAY_LONG();
+ 222   1        _i2c_stop();
+ 223   1        I2C_DELAY_LONG();
+ 224   1        return ERROR_CODE_TRUE;
+ 225   1        
+ 226   1      }
+ 227          
+ 228          /* EOF */
+ 229          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    522    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      16
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+C51 COMPILER V9.52.0.0   I2C                                                               01/18/2016 20:03:25 PAGE 5   
+
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

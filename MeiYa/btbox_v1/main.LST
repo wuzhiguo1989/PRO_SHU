@@ -1,0 +1,82 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              03/26/2016 21:49:14 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "stc15wxxxx.h"
+   2          #include "share.h"
+   3          #include "sync.h"
+   4          #include "task.h"
+   5          #include "adc.h"
+   6          #include "time.h"
+   7          #include "utils.h"
+   8          #include "key.h"
+   9          #include "74hc595.h"
+  10          
+  11          void main()
+  12          {
+  13   1        
+  14   1        EA = 0;
+  15   1        init_adc();
+  16   1        key_io_init();
+  17   1        Led_io_init();
+  18   1        init_system_tick();
+  19   1        Timer2Init();
+  20   1        time_init();
+  21   1        speak_init_params();
+  22   1        DisplayScanInit();
+  23   1      
+  24   1        EA =1;
+  25   1        
+  26   1          while(1)
+  27   1          {
+  28   2          reset_watch_dog();
+  29   2      
+  30   2              // 500ms计算一次速度、温度、电池电压
+  31   2              if(INT_PROC & ADC_DUTY){
+  32   3            power_error_code = power_detect_in();
+  33   3            // power_error_code = 0;
+  34   3                power_level_cal();
+  35   3                color_level ++;
+  36   3                if(color_level == 25)
+  37   3                  color_level = 0;
+  38   3                INT_PROC &= ~ADC_DUTY;
+  39   3                continue;
+  40   3              }
+  41   2      
+  42   2              // 10ms 刷新一次按键
+  43   2          if (INT_PROC & KEY_DUTY) {
+  44   3            key_duty_task();
+  45   3            Display_digit_on_screen();
+  46   3                  INT_PROC &= ~KEY_DUTY;
+  47   3                  continue;
+  48   3              }
+  49   2      
+  50   2          if (INT_PROC & REFRESH_DUTY) {
+  51   3            DisplayScan();
+  52   3                  INT_PROC &= ~REFRESH_DUTY;
+  53   3                  continue;
+  54   3              }
+  55   2      
+C51 COMPILER V9.52.0.0   MAIN                                                              03/26/2016 21:49:14 PAGE 2   
+
+  56   2        }
+  57   1      } 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    109    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

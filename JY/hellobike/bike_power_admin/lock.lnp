@@ -1,0 +1,8 @@
+"STARTUP.obj",
+"main.obj",
+"power.obj",
+"sync.obj",
+"task.obj" 
+TO "lock" 
+
+REMOVEUNUSED 

@@ -1,0 +1,256 @@
+C51 COMPILER V9.52.0.0   KEY                                                               02/29/2016 20:28:51 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE KEY
+OBJECT MODULE PLACED IN key.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE key.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "key.h"
+   2          #include "led.h"
+   3          #include "utils.h"
+   4          #include "share.h"
+   5          #include "ble.h"
+   6          #include "string.h"
+   7          
+   8          
+   9          #define LOW     0
+  10          #define HIGH    1
+  11          
+  12          static volatile u32 g_PreKey = 0;   //前次按键值 
+  13          static volatile u32 g_NowKey = 0;   //当前按键值 
+  14          static volatile u32 g_ShortKeyCode = 0;    //短按键,单次触发 
+  15          static volatile u32 g_LongKeyCode = 0;     //长按键,持续触发 
+  16          
+  17          
+  18          void key_io_init()
+  19          {
+  20   1          // P02~P04
+  21   1          quasi_bidirectional(0, 0x10);
+  22   1          quasi_bidirectional(0, 0x08);
+  23   1          quasi_bidirectional(0, 0x04);
+  24   1          // P16~P17
+  25   1          quasi_bidirectional(1, 0x80);
+  26   1          quasi_bidirectional(1, 0x40);
+  27   1          // P20~P27
+  28   1          quasi_bidirectional(2, 0x80);
+  29   1          quasi_bidirectional(2, 0x40);
+  30   1          quasi_bidirectional(2, 0x20);
+  31   1          quasi_bidirectional(2, 0x10);
+  32   1          quasi_bidirectional(2, 0x08);
+  33   1          quasi_bidirectional(2, 0x04);
+  34   1          quasi_bidirectional(2, 0x02);
+  35   1          quasi_bidirectional(2, 0x01);
+  36   1          // P35
+  37   1          quasi_bidirectional(3, 0x20);
+  38   1      
+  39   1          // 41~46
+  40   1          quasi_bidirectional(4, 0x40);
+  41   1          quasi_bidirectional(4, 0x20);
+  42   1          quasi_bidirectional(4, 0x10);
+  43   1          quasi_bidirectional(4, 0x08);
+  44   1          quasi_bidirectional(4, 0x04);
+  45   1          quasi_bidirectional(4, 0x02);
+  46   1          // 51~52
+  47   1          quasi_bidirectional(5, 0x04);
+  48   1          quasi_bidirectional(5, 0x02);
+  49   1          // 70~77
+  50   1          quasi_bidirectional(7, 0x80);
+  51   1          quasi_bidirectional(7, 0x40);
+  52   1          quasi_bidirectional(7, 0x20);
+  53   1          quasi_bidirectional(7, 0x10);
+  54   1          quasi_bidirectional(7, 0x08);
+  55   1          quasi_bidirectional(7, 0x04);
+C51 COMPILER V9.52.0.0   KEY                                                               02/29/2016 20:28:51 PAGE 2   
+
+  56   1          quasi_bidirectional(7, 0x02);
+  57   1          quasi_bidirectional(7, 0x01);
+  58   1      }
+  59          
+  60          
+  61          // 行列扫描的缺陷：当有多个键同时按下时，可能无法检测具体位置
+  62          // 不使用行列扫描，单独置行， 求列， 能否求出每个按键的位置？
+  63          u32 
+  64          IO_KeyScan_G() {
+  65   1          u32 key = 0x00000003;
+  66   1          // for(i = 30; i >= 1; i--)
+  67   1          //     key = key << 1 | K(i);
+  68   1          key = key << 1 | K30;
+  69   1          key = key << 1 | K29;
+  70   1          key = key << 1 | K28;
+  71   1          key = key << 1 | K27;
+  72   1          key = key << 1 | K26;
+  73   1          key = key << 1 | K25;
+  74   1          key = key << 1 | K24;
+  75   1          key = key << 1 | K23;
+  76   1          key = key << 1 | K22;
+  77   1          key = key << 1 | K21;
+  78   1          key = key << 1 | K20;
+  79   1          key = key << 1 | K19;
+  80   1          key = key << 1 | K18;
+  81   1          key = key << 1 | K17;
+  82   1          key = key << 1 | K16;
+  83   1          key = key << 1 | K15;
+  84   1          key = key << 1 | K14;    
+  85   1          key = key << 1 | K13;
+  86   1          key = key << 1 | K12;
+  87   1          key = key << 1 | K11;
+  88   1          key = key << 1 | K10;
+  89   1          key = key << 1 | K9;
+  90   1          key = key << 1 | K8;
+  91   1          key = key << 1 | K7;
+  92   1          key = key << 1 | K6;
+  93   1          key = key << 1 | K5;
+  94   1          key = key << 1 | K4;
+  95   1          key = key << 1 | K3;
+  96   1          key = key << 1 | K2;
+  97   1          key = key << 1 | K1;
+  98   1          return key;
+  99   1      }
+ 100          
+ 101          
+ 102          
+ 103          
+ 104          
+ 105          //g_NowKey ^ g_PreKey   :边缘触发 
+ 106          //g_NowKey & (g_NowKey ^ g_PreKey):上升沿触发 
+ 107          //g_PreKey & (g_NowKey ^ g_PreKey):下降沿触发 
+ 108          //g_NowKey ^ (g_NowKey ^ g_PreKey):高电平触发(带消抖) 
+ 109          //触发方式 ^ g_KeyCode :仅更新变化部分按键值 
+ 110          
+ 111          //1.支持长短按键同时并行触发
+ 112          //2.将短按键触发判据改为下降沿触发(短按键释放)
+ 113          
+ 114          
+ 115          
+ 116          void key_scan_task() {
+ 117   1          u32 key = IO_KeyScan_G();
+C51 COMPILER V9.52.0.0   KEY                                                               02/29/2016 20:28:51 PAGE 3   
+
+ 118   1          static u16 CntPlus = 0;
+ 119   1          // key ^= 0xffff;
+ 120   1          // key_state_trigger = key & ( key ^ key_state_hold);
+ 121   1          // key_state_hold = key;
+ 122   1          g_PreKey = g_NowKey; 
+ 123   1          g_NowKey = ~key;
+ 124   1          g_ShortKeyCode = (g_PreKey & (g_NowKey ^ g_PreKey)) ^ g_ShortKeyCode;  // 下降沿触发 
+ 125   1      
+ 126   1          if (g_NowKey ^ g_PreKey ^ g_NowKey ^ g_LongKeyCode)         // 高电平触发(带消抖) 
+ 127   1          { 
+ 128   2              if(CntPlus++ > LONG_KEY_TIME)
+ 129   2              {                           
+ 130   3                  g_LongKeyCode |= g_NowKey;                          //添加长按键值
+ 131   3                  if(CntPlus >= 60000)
+ 132   3                        CntPlus = 2000;
+ 133   3              }    
+ 134   2              if(CntPlus > SHORT_KEY_TIME) 
+ 135   2                  g_ShortKeyCode &= g_NowKey;
+ 136   2      
+ 137   2          } 
+ 138   1          else 
+ 139   1          {       
+ 140   2              CntPlus = 0;                                        //无新增按键出现,计数归零 
+ 141   2              g_LongKeyCode &= g_NowKey;                          //剔除已释放的按键
+ 142   2              g_ShortKeyCode &= g_NowKey;
+ 143   2          }
+ 144   1          // TX1_write2buff(g_LongKeyCode);
+ 145   1          // TX1_write2buff(g_LongKeyCode >> 8);
+ 146   1          // TX1_write2buff(g_LongKeyCode >> 16);
+ 147   1          // TX1_write2buff(g_LongKeyCode >> 24);
+ 148   1      }
+ 149          
+ 150          // static code u8  const keyboard_map[5][6] = {
+ 151          //     {1, 2, 3, 4, 5, 6},
+ 152          //     {7, 8, 9, 10, 11, 12},
+ 153          //     {13, 14, 15, 16, 17, 18},
+ 154          //     {19, 20, 21, 22, 23, 24},
+ 155          //     {25, 26, 27, 28, 29, 30}
+ 156          // };
+ 157          
+ 158          // void check_key_location() {
+ 159          //     u8 vertical, horizontal;
+ 160          //     u8 vertical_mask = 0x01;
+ 161          //     u8 horizontal_mask = 0x01;
+ 162          //     u8 badkey_iterator = 0;
+ 163          //     u8 vertical_iterator= 0;
+ 164          //     u8 horizontal_iterator = 0;
+ 165          //     u16 key_id_value = g_LongKeyCode & 0x07ff;
+ 166          //     memset(order_for_badkey, 0, 30);
+ 167          //     if(key_id_value){
+ 168          //         performance_status |= 0x20;
+ 169          //         vertical = key_id_value >> 6;
+ 170          //         horizontal = key_id_value & 0x3f;
+ 171          //         for(vertical_iterator = 0; vertical_iterator < 5; vertical_iterator++)
+ 172          //         {
+ 173          //             if(vertical & (vertical_mask << vertical_iterator))
+ 174          //             {
+ 175          //                 for(horizontal_iterator = 0; horizontal_iterator < 6; horizontal_iterator++)
+ 176          //                 {
+ 177          //                     if(horizontal & (horizontal_mask << horizontal_iterator))
+ 178          //                     {
+ 179          //                         order_for_badkey[badkey_iterator] = keyboard_map[vertical_iterator][horizontal_
+C51 COMPILER V9.52.0.0   KEY                                                               02/29/2016 20:28:51 PAGE 4   
+
+             -iterator];
+ 180          //                         badkey_iterator ++;
+ 181          //                     }
+ 182          //                 }
+ 183          //             }
+ 184          //         }
+ 185          
+ 186          //     }
+ 187          //     else
+ 188          //         performance_status &= ~0x20;
+ 189          //     number_for_badkey = badkey_iterator;
+ 190          // }
+ 191          
+ 192          
+ 193          void check_key_location() {
+ 194   1          u8 badkey_location, badkey_iterator = 0;
+ 195   1          u32 key_mask = 0x00000001;
+ 196   1          u32 key_id_value;
+ 197   1          g_LongKeyCode = g_LongKeyCode & (~IO_KeyScan_G());
+ 198   1          key_id_value = g_LongKeyCode & 0x3fffffff;
+ 199   1          memset(order_for_badkey, 0, 30);
+ 200   1          if(key_id_value){
+ 201   2              performance_status |= 0x20;
+ 202   2              for (badkey_location = 0; badkey_location < 30; badkey_location++)
+ 203   2              {
+ 204   3                  if(key_id_value & (key_mask << badkey_location))
+ 205   3                  {
+ 206   4                      order_for_badkey[badkey_iterator] = badkey_location + 1;
+ 207   4                      badkey_iterator ++;
+ 208   4                  } 
+ 209   3              }
+ 210   2          }
+ 211   1          else
+ 212   1              performance_status &= ~0x20;
+ 213   1          number_for_badkey = badkey_iterator;
+ 214   1      }
+ 215          
+ 216          
+ 217          void key_duty_task() {
+ 218   1          key_scan_task();
+ 219   1          check_key_location();
+ 220   1      }
+ 221          
+ 222          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1619    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     18      14
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

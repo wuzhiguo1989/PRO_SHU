@@ -1,0 +1,325 @@
+C51 COMPILER V9.52.0.0   KEY                                                               10/24/2015 21:55:10 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE KEY
+OBJECT MODULE PLACED IN key.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE key.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "key.h"
+   2          #include "led.h"
+   3          #include "utils.h"
+   4          #include "share.h"
+   5          #include "ble.h"
+   6          #include "string.h"
+   7          
+   8          
+   9          #define LOW     0
+  10          #define HIGH    1
+  11          
+  12          static volatile u32 g_PreKey;   //前次按键值 
+  13          static volatile u32 g_NowKey;   //当前按键值 
+  14          static volatile u32 g_ShortKeyCode = 0;    //短按键,单次触发 
+  15          static volatile u32 g_LongKeyCode = 0;     //长按键,持续触发 
+  16          
+  17          #define config_A_output() \
+  18              push_pull(KA1_Mx, KA1_BIT); \
+  19              push_pull(KA2_Mx, KA2_BIT); \
+  20              push_pull(KA3_Mx, KA3_BIT); \
+  21              push_pull(KA4_Mx, KA4_BIT); \
+  22              push_pull(KA5_Mx, KA5_BIT); \
+  23          
+  24          #define config_B_output() \
+  25              push_pull(KB1_Mx, KB1_BIT); \
+  26              push_pull(KB2_Mx, KB2_BIT); \
+  27              push_pull(KB3_Mx, KB3_BIT); \
+  28              push_pull(KB4_Mx, KB4_BIT); \
+  29              push_pull(KB5_Mx, KB5_BIT); \
+  30              push_pull(KB6_Mx, KB6_BIT);
+  31          
+  32          
+  33          #define config_A_input() \
+  34              pure_input(KA1_Mx, KA1_BIT); \
+  35              pure_input(KA2_Mx, KA2_BIT); \
+  36              pure_input(KA3_Mx, KA3_BIT); \
+  37              pure_input(KA4_Mx, KA4_BIT); \
+  38              pure_input(KA5_Mx, KA5_BIT); \
+  39          
+  40          #define config_B_input() \
+  41              pure_input(KB1_Mx, KB1_BIT); \
+  42              pure_input(KB2_Mx, KB2_BIT); \
+  43              pure_input(KB3_Mx, KB3_BIT); \
+  44              pure_input(KB4_Mx, KB4_BIT); \
+  45              pure_input(KB5_Mx, KB5_BIT); \
+  46              pure_input(KB6_Mx, KB6_BIT);
+  47          
+  48          
+  49          
+  50          // KeyScan for common use without any speedup
+  51          // For each pin is separate
+  52          // static u16 
+  53          // IO_KeyScan_G() {
+  54          //     u32 key = 0;
+  55          //     // Read Vertical will set KBx = 0
+C51 COMPILER V9.52.0.0   KEY                                                               10/24/2015 21:55:10 PAGE 2   
+
+  56          //     config_A_input();
+  57          //     config_B_output();
+  58          //     KB1 = KB2 = KB3 = KB4 = KB5 = KB6 = LOW;
+  59          //     key = KA5;
+  60          //     key <<= 1;
+  61          //     key |= KA4;
+  62          //     key <<= 1;
+  63          //     key |= KA3;
+  64          //     key <<= 1;
+  65          //     key |= KA2;
+  66          //     key <<= 1;
+  67          //     key |= KA1;
+  68          //     key <<= 1;
+  69          //     // Read Horizontal will set KAx = 0
+  70          //     config_B_input();
+  71          //     config_A_output();
+  72          //     KA1 = KA2 = KA3 = KA4 = KA5 = LOW;
+  73          //     key |= KB6;
+  74          //     key <<= 1;
+  75          //     key |= KB5;
+  76          //     key <<= 1;    
+  77          //     key |= KB4;
+  78          //     key <<= 1;
+  79          //     key |= KB3;
+  80          //     key <<= 1;
+  81          //     key |= KB2;
+  82          //     key <<= 1;
+  83          //     key |= KB1;
+  84          //     return key;
+  85          // }
+  86          
+  87          // 行列扫描的缺陷：当有多个键同时按下时，可能无法检测具体位置
+  88          // 不使用行列扫描，单独置行， 求列， 能否求出每个按键的位置？
+  89          u32 
+  90          IO_KeyScan_G() {
+  91   1          u32 key = 0x00000003;
+  92   1          config_B_input();
+  93   1          config_A_output();
+  94   1      
+  95   1          KA5 = LOW;
+  96   1          KA1 = KA2 = KA3 = KA4 = HIGH;
+  97   1          key <<= 1;
+  98   1          key |= KB6;
+  99   1          key <<= 1;
+ 100   1          key |= KB5;
+ 101   1          key <<= 1;
+ 102   1          key |= KB4;
+ 103   1          key <<= 1;
+ 104   1          key |= KB3;
+ 105   1          key <<= 1;
+ 106   1          key |= KB2;
+ 107   1          key <<= 1;
+ 108   1          key |= KB1;
+ 109   1      
+ 110   1          KA4 = LOW;
+ 111   1          KA1 = KA2 = KA3 = KA5 = HIGH;
+ 112   1          key <<= 1;
+ 113   1          key |= KB6;
+ 114   1          key <<= 1;
+ 115   1          key |= KB5;
+ 116   1          key <<= 1;
+ 117   1          key |= KB4;
+C51 COMPILER V9.52.0.0   KEY                                                               10/24/2015 21:55:10 PAGE 3   
+
+ 118   1          key <<= 1;
+ 119   1          key |= KB3;
+ 120   1          key <<= 1;
+ 121   1          key |= KB2;
+ 122   1          key <<= 1;
+ 123   1          key |= KB1;
+ 124   1      
+ 125   1          KA3 = LOW;
+ 126   1          KA1 = KA2 = KA4 = KA5 = HIGH;
+ 127   1          key <<= 1;
+ 128   1          key |= KB6;
+ 129   1          key <<= 1;
+ 130   1          key |= KB5;
+ 131   1          key <<= 1;
+ 132   1          key |= KB4;
+ 133   1          key <<= 1;
+ 134   1          key |= KB3;
+ 135   1          key <<= 1;
+ 136   1          key |= KB2;
+ 137   1          key <<= 1;
+ 138   1          key |= KB1;
+ 139   1      
+ 140   1          KA2 = LOW;
+ 141   1          KA1 = KA3 = KA4 = KA5 = HIGH;
+ 142   1          key <<= 1;
+ 143   1          key |= KB6;
+ 144   1          key <<= 1;
+ 145   1          key |= KB5;
+ 146   1          key <<= 1;
+ 147   1          key |= KB4;
+ 148   1          key <<= 1;
+ 149   1          key |= KB3;
+ 150   1          key <<= 1;
+ 151   1          key |= KB2;
+ 152   1          key <<= 1;
+ 153   1          key |= KB1;
+ 154   1      
+ 155   1          KA1 = LOW;
+ 156   1          KA2 = KA3 = KA4 = KA5 = HIGH;
+ 157   1          key <<= 1;
+ 158   1          key |= KB6;
+ 159   1          key <<= 1;
+ 160   1          key |= KB5;
+ 161   1          key <<= 1;
+ 162   1          key |= KB4;
+ 163   1          key <<= 1;
+ 164   1          key |= KB3;
+ 165   1          key <<= 1;
+ 166   1          key |= KB2;
+ 167   1          key <<= 1;
+ 168   1          key |= KB1;
+ 169   1      
+ 170   1          return key;
+ 171   1      }
+ 172          
+ 173          
+ 174          
+ 175          
+ 176          
+ 177          //g_NowKey ^ g_PreKey   :边缘触发 
+ 178          //g_NowKey & (g_NowKey ^ g_PreKey):上升沿触发 
+ 179          //g_PreKey & (g_NowKey ^ g_PreKey):下降沿触发 
+C51 COMPILER V9.52.0.0   KEY                                                               10/24/2015 21:55:10 PAGE 4   
+
+ 180          //g_NowKey ^ (g_NowKey ^ g_PreKey):高电平触发(带消抖) 
+ 181          //触发方式 ^ g_KeyCode :仅更新变化部分按键值 
+ 182          
+ 183          //1.支持长短按键同时并行触发
+ 184          //2.将短按键触发判据改为下降沿触发(短按键释放)
+ 185          
+ 186          void key_scan_task() {
+ 187   1          u32 key = IO_KeyScan_G();
+ 188   1          static u16 CntPlus = 0;
+ 189   1          // key ^= 0xffff;
+ 190   1          // key_state_trigger = key & ( key ^ key_state_hold);
+ 191   1          // key_state_hold = key;
+ 192   1          
+ 193   1          g_PreKey = g_NowKey; 
+ 194   1          g_NowKey = ~key; 
+ 195   1          g_ShortKeyCode = (g_PreKey & (g_NowKey ^ g_PreKey)) ^ g_ShortKeyCode;  // 下降沿触发 
+ 196   1      
+ 197   1          if (g_NowKey ^ g_PreKey ^ g_NowKey ^ g_LongKeyCode)         // 高电平触发(带消抖) 
+ 198   1          { 
+ 199   2              if(CntPlus++ > LONG_KEY_TIME)
+ 200   2              {                           
+ 201   3                  g_LongKeyCode |= g_NowKey;                          //添加长按键值
+ 202   3                  if(CntPlus >= 60000)
+ 203   3                        CntPlus = 2000;
+ 204   3              }    
+ 205   2              if(CntPlus > SHORT_KEY_TIME) 
+ 206   2                  g_ShortKeyCode &= g_NowKey;
+ 207   2      
+ 208   2          } 
+ 209   1          else 
+ 210   1          {       
+ 211   2              CntPlus = 0;                                        //无新增按键出现,计数归零 
+ 212   2              g_LongKeyCode &= g_NowKey;                          //剔除已释放的按键
+ 213   2              g_ShortKeyCode &= g_NowKey;
+ 214   2          }
+ 215   1      }
+ 216          
+ 217          // static code u8  const keyboard_map[5][6] = {
+ 218          //     {1, 2, 3, 4, 5, 6},
+ 219          //     {7, 8, 9, 10, 11, 12},
+ 220          //     {13, 14, 15, 16, 17, 18},
+ 221          //     {19, 20, 21, 22, 23, 24},
+ 222          //     {25, 26, 27, 28, 29, 30}
+ 223          // };
+ 224          
+ 225          // void check_key_location() {
+ 226          //     u8 vertical, horizontal;
+ 227          //     u8 vertical_mask = 0x01;
+ 228          //     u8 horizontal_mask = 0x01;
+ 229          //     u8 badkey_iterator = 0;
+ 230          //     u8 vertical_iterator= 0;
+ 231          //     u8 horizontal_iterator = 0;
+ 232          //     u16 key_id_value = g_LongKeyCode & 0x07ff;
+ 233          //     memset(order_for_badkey, 0, 30);
+ 234          //     if(key_id_value){
+ 235          //         performance_status |= 0x20;
+ 236          //         vertical = key_id_value >> 6;
+ 237          //         horizontal = key_id_value & 0x3f;
+ 238          //         for(vertical_iterator = 0; vertical_iterator < 5; vertical_iterator++)
+ 239          //         {
+ 240          //             if(vertical & (vertical_mask << vertical_iterator))
+ 241          //             {
+C51 COMPILER V9.52.0.0   KEY                                                               10/24/2015 21:55:10 PAGE 5   
+
+ 242          //                 for(horizontal_iterator = 0; horizontal_iterator < 6; horizontal_iterator++)
+ 243          //                 {
+ 244          //                     if(horizontal & (horizontal_mask << horizontal_iterator))
+ 245          //                     {
+ 246          //                         order_for_badkey[badkey_iterator] = keyboard_map[vertical_iterator][horizontal_
+             -iterator];
+ 247          //                         badkey_iterator ++;
+ 248          //                     }
+ 249          //                 }
+ 250          //             }
+ 251          //         }
+ 252          
+ 253          //     }
+ 254          //     else
+ 255          //         performance_status &= ~0x20;
+ 256          //     number_for_badkey = badkey_iterator;
+ 257          // }
+ 258          
+ 259          
+ 260          void check_key_location() {
+ 261   1          u8 badkey_location, badkey_iterator = 0;
+ 262   1          u32 key_mask = 0x00000001;
+ 263   1          u32 key_id_value = g_LongKeyCode & 0x3fffffff;
+ 264   1          memset(order_for_badkey, 0, 30);
+ 265   1          if(key_id_value){
+ 266   2              performance_status |= 0x20;
+ 267   2              for (badkey_location = 0; badkey_location < 30; badkey_location++)
+ 268   2              {
+ 269   3                  if(key_id_value & (key_mask << badkey_location))
+ 270   3                  {
+ 271   4                      order_for_badkey[badkey_iterator] = badkey_location + 1;
+ 272   4                      badkey_iterator ++;
+ 273   4                  } 
+ 274   3              }
+ 275   2          }
+ 276   1          else
+ 277   1              performance_status &= ~0x20;
+ 278   1          number_for_badkey = badkey_iterator;
+ 279   1      }
+ 280          
+ 281          
+ 282          void key_duty_task() {
+ 283   1          key_scan_task();
+ 284   1          check_key_location();
+ 285   1      }
+ 286          
+ 287          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2554    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     18      18
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+C51 COMPILER V9.52.0.0   KEY                                                               10/24/2015 21:55:10 PAGE 6   
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

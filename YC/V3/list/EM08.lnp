@@ -1,0 +1,15 @@
+".\list\extension.obj",
+".\list\main.obj",
+".\list\putchar.obj",
+".\list\task.obj",
+".\list\uart.obj",
+".\list\workflow.obj",
+".\list\adc.obj",
+".\list\alert.obj",
+".\list\dwscreen.obj",
+".\list\e2prom.obj",
+".\list\process.obj" 
+TO ".\list\EM08" 
+
+PRINT(".\list\EM08.map") DISABLEWARNING (16) 
+REMOVEUNUSED 

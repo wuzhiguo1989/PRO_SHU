@@ -1,0 +1,133 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              12/28/2015 09:01:14 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE main.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          *   STC-ISP导入芯片信息至Keil
+   3          *   采用STC15W4K32S4系列
+   4          *   假定测试芯片的工作频率为24.000MHz
+   5          */
+   6          
+   7          #include "config.h"
+   8          #include "utils.h"
+   9          #include "sync.h"
+  10          #include "ble.h"
+  11          #include "task.h"
+  12          #include "share.h"
+  13          
+  14          static void init_system_component();
+  15          static void init_logic_params();
+  16          
+  17          void Delay500ms()       //@24.000MHz
+  18          {
+  19   1          unsigned char i, j, k;
+  20   1      
+  21   1          _nop_();
+  22   1          _nop_();
+  23   1          i = 46;
+  24   1          j = 153;
+  25   1          k = 245;
+  26   1          do
+  27   1          {
+  28   2              do
+  29   2              {
+  30   3                  while (--k);
+  31   3              } while (--j);
+  32   2          } while (--i);
+  33   1      }
+  34          
+  35          
+  36          void instant_effective_init() {
+  37   1          init_system_component();
+  38   1          init_logic_params();
+  39   1      }
+  40          
+  41          
+  42          void main()
+  43          {  
+  44   1          // stop catching interrupt
+  45   1          EA = 0;
+  46   1          
+  47   1          // delay
+  48   1          Delay500ms();
+  49   1      
+  50   1          instant_effective_init();
+  51   1      
+  52   1      
+  53   1          // begin catching interrupt
+  54   1          EA = 1;
+  55   1          while(1) {
+C51 COMPILER V9.52.0.0   MAIN                                                              12/28/2015 09:01:14 PAGE 2   
+
+  56   2      
+  57   2              // Feed dog
+  58   2              reset_watch_dog();      
+  59   2              
+  60   2              // 工作信号 
+  61   2              if(INT_PROC & UART_DUTY)
+  62   2              {
+  63   3                  candidate_driver_signal_recieving = YES;
+  64   3                  driver_high_pin(key_cabinet_number);
+  65   3                  INT_PROC &= ~UART_DUTY;
+  66   3                  continue;
+  67   3              }
+  68   2      
+  69   2              // 柜门开锁持续时间到
+  70   2              if(INT_PROC & DRIVER_DUTY)
+  71   2              {
+  72   3                  driver_low_pin(key_cabinet_number);
+  73   3                  candidate_driver_signal_recieving = NO;
+  74   3                  reset_all_counters();          
+  75   3                  INT_PROC &= ~DRIVER_DUTY;
+  76   3                  continue;
+  77   3              }
+  78   2          }
+  79   1      }
+  80          
+  81          
+  82          static void init_system_component() {  
+  83   1          // timer
+  84   1          init_system_tick();
+  85   1      
+  86   1          // ble
+  87   1          Uart_Init();
+  88   1      
+  89   1          // DRIVER_IO
+  90   1          driver_io_init();
+  91   1      }
+  92          
+  93          
+  94          // 默认柜锁关闭
+  95          static void init_logic_params() {
+  96   1        u8 i;
+  97   1        for(i = 1; i <= 28; i++)
+  98   1          driver_low_pin(i);
+  99   1      }
+ 100          
+ 101          
+ 102          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    129    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----       1
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+C51 COMPILER V9.52.0.0   MAIN                                                              12/28/2015 09:01:14 PAGE 3   
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

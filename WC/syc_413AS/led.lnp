@@ -1,0 +1,9 @@
+"STARTUP.obj",
+"shared.obj",
+"display.obj",
+"sync.obj",
+"com_1.obj",
+"e2prom.obj" 
+TO "led" 
+
+REMOVEUNUSED 

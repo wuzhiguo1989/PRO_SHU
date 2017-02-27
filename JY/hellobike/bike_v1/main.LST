@@ -1,0 +1,207 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              11/01/2016 13:13:09 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          *   STC-ISP导入芯片信息至Keil
+   3          *   采用STC15W4K32S4系列
+   4          *   假定测试芯片的工作频率为24.000MHz
+   5          */
+   6          
+   7          #include "utils.h"
+   8          #include "sync.h"
+   9          #include "task.h"
+  10          #include "key.h"
+  11          #include "string.h"
+  12          #include "power.h"
+  13          #include "lm567.h"
+  14          #include "utils.h"
+  15          #include "usart.h"
+  16          #include "beep.h"
+  17          
+  18          static void init_system_component();
+  19          static void init_logic_params();
+  20          
+  21          
+  22          void Delay1000ms()      //@24.000MHz
+  23          {
+  24   1          unsigned char i, j, k;
+  25   1      
+  26   1          _nop_();
+  27   1          _nop_();
+  28   1          i = 92;
+  29   1          j = 50;
+  30   1          k = 238;
+  31   1          do
+  32   1          {
+  33   2              do
+  34   2              {
+  35   3                  while (--k);
+  36   3              } while (--j);
+  37   2          } while (--i);
+  38   1      }
+  39          
+  40          
+  41          void instant_effective_init() {
+  42   1          init_system_component();
+  43   1          init_logic_params();
+  44   1      
+  45   1      }
+  46          
+  47          
+  48          void main()
+  49          {  
+  50   1          // stop catching interrupt
+  51   1          EA = 0;
+  52   1      
+  53   1          instant_effective_init();
+  54   1          count_down_init_all_task();
+  55   1      
+C51 COMPILER V9.52.0.0   MAIN                                                              11/01/2016 13:13:09 PAGE 2   
+
+  56   1      
+  57   1          // begin catching interrupt
+  58   1          EA = 1;
+  59   1           
+  60   1          INT_PROC = SLEEP_DUTY;   
+  61   1      
+  62   1          while(1) {
+  63   2              // Feed dog
+  64   2              reset_watch_dog();
+  65   2      
+  66   2              if(INT_PROC & KEY_DUTY)
+  67   2              {
+  68   3                  count_down_at_all_task();
+  69   3                  INT_PROC &= ~KEY_DUTY;
+  70   3                  continue;
+  71   3              }
+  72   2      
+  73   2              if(INT_PROC & UART_DUTY) 
+  74   2              { 
+  75   3                  uart_process_recieved(); 
+  76   3                  INT_PROC &= ~UART_DUTY;              
+  77   3                  continue; 
+  78   3              } 
+  79   2      
+  80   2      
+  81   2              // 5ms检测一次
+  82   2              if(INT_PROC & TICK_DUTY)
+  83   2              {
+  84   3                  if (USART_RX_Block(&COM1))  
+  85   3                      INT_PROC |= UART_DUTY;
+  86   3                  cycle_based_control();
+  87   3                  led_display_task(); 
+  88   3                  INT_PROC &= ~TICK_DUTY;
+  89   3                  continue;            
+  90   3              }
+  91   2      
+  92   2              if(INT_PROC & ALTER_DUTY)
+  93   2              {
+  94   3                  // 上报报警信息
+  95   3                  speak_alter_pca_init();
+  96   3                  speak_beep_max();
+  97   3                  speak_mode = alter_beep;
+  98   3                  INT_PROC &= ~ALTER_DUTY;
+  99   3                  continue;
+ 100   3              }
+ 101   2      
+ 102   2              if(INT_PROC & SLEEP_DUTY)
+ 103   2              {
+ 104   3                  EX1 = ENABLE;
+ 105   3                  speak_mode = mute;
+ 106   3                  speak_beep_disable();
+ 107   3                  led_mode_set = led_display_off;
+ 108   3                  led_display_stop();
+ 109   3                  INT_PROC &= ~SLEEP_DUTY;
+ 110   3                  PCON = 0x02;
+ 111   3                  continue;
+ 112   3              }
+ 113   2      
+ 114   2              if(INT_PROC & LOCK_DUTY)
+ 115   2              {
+ 116   3                  cancle_open_count_down();
+ 117   3                  cancle_sleep_count_down();
+C51 COMPILER V9.52.0.0   MAIN                                                              11/01/2016 13:13:09 PAGE 3   
+
+ 118   3                  reload_lock_sleep_count_down();
+ 119   3                  reload_lock_count_down();
+ 120   3                  led_mode_set = lock;
+ 121   3                  led_mode_changed(); 
+ 122   3                  INT_PROC &= ~LOCK_DUTY;
+ 123   3                  continue;
+ 124   3              }
+ 125   2      
+ 126   2              if(INT_PROC & LOCK_FAIL_DUTY)
+ 127   2              {
+ 128   3                  EX1 = ENABLE;
+ 129   3                  cancle_open_count_down();
+ 130   3                  cancle_lock_count_down();
+ 131   3                  cancle_sleep_count_down();
+ 132   3                  led_flicker.cycle_enable = OFF;
+ 133   3                  led_power_disable();
+ 134   3                  status = on;
+ 135   3                  cpu_wake_up_enable();
+ 136   3                  uart_send_lock_by_hand_fail();
+ 137   3                  cpu_wake_up_disable();
+ 138   3                  reload_sleep_count_down();
+ 139   3                  INT_PROC &= ~LOCK_FAIL_DUTY;
+ 140   3                  continue;
+ 141   3              }
+ 142   2          }
+ 143   1      }
+ 144          
+ 145          
+ 146          static void init_system_component() {  
+ 147   1          // timer
+ 148   1          init_system_tick();
+ 149   1      
+ 150   1          
+ 151   1        // power
+ 152   1        power_io_init();
+ 153   1      
+ 154   1          alter_beep_protect();
+ 155   1      
+ 156   1          speak_init_params();
+ 157   1          
+ 158   1          init_beep_io();
+ 159   1      
+ 160   1          led_io_init();
+ 161   1      
+ 162   1      //    init_adc();
+ 163   1      
+ 164   1          uart_Init();
+ 165   1        
+ 166   1      }
+ 167          
+ 168          
+ 169          static void init_logic_params() {
+ 170   1         init_sync_object();
+ 171   1      }
+ 172          
+ 173          
+ 174          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    305    ----
+   CONSTANT SIZE    =   ----    ----
+C51 COMPILER V9.52.0.0   MAIN                                                              11/01/2016 13:13:09 PAGE 4   
+
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

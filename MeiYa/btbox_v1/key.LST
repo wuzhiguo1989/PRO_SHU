@@ -1,0 +1,263 @@
+C51 COMPILER V9.52.0.0   KEY                                                               03/26/2016 21:49:15 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE KEY
+OBJECT MODULE PLACED IN key.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE key.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "key.h"
+   2          #include "utils.h"
+   3          #include "string.h"
+   4          #include "share.h"
+   5          #include "time.h"
+   6          #include "sync.h"
+   7          
+   8          static volatile u8 g_PreKey = 0;   //前次按键值 
+   9          static volatile u8 g_NowKey = 0;   //当前按键值 
+  10          volatile u8 g_ShortKeyCode = 0;    //短按键,单次触发 
+  11          volatile u8 g_LongKeyCode = 0;     //长按键,持续触发
+  12          volatile u8 g_KeyCode = 0;     //长按键,持续触发
+  13          
+  14          
+  15          u16 pca_next_target = 0;
+  16          
+  17          
+  18          void speak_init_params() {
+  19   1          CCON = 0;                       //初始化PCA控制寄存器
+  20   1                                          //PCA定时器停止
+  21   1                                          //清除CF标志
+  22   1                                          //清除模块中断标志
+  23   1          CL = 0;
+  24   1          CH = 0;
+  25   1          pca_next_target =  pca_next_target + T4kHz;
+  26   1          CCAP0L = pca_next_target;
+  27   1          CCAP0H = pca_next_target >> 8;
+  28   1          CMOD = 0x00;                    //设置PCA时钟源
+  29   1                                          //禁止PCA定时器溢出中断
+  30   1          CCAPM0 = 0x49;                  //PCA模块0为16位定时器模式
+  31   1          CR = 1;
+  32   1      }
+  33          
+  34          
+  35          
+  36          void key_io_init()
+  37          {
+  38   1          // P32
+  39   1          pure_input(3, 0x40);
+  40   1          // P14
+  41   1          pure_input(1, 0x10);
+  42   1          // P15
+  43   1          pure_input(1, 0x20);
+  44   1          // P54
+  45   1          push_pull(5, 0x10);
+  46   1          // P17
+  47   1          push_pull(1, 0x80);
+  48   1          // P16
+  49   1          push_pull(1, 0x40);
+  50   1      
+  51   1        POUT = 0;
+  52   1      
+  53   1          MUTE = 0;
+  54   1      
+  55   1          SPEAK = 0;
+C51 COMPILER V9.52.0.0   KEY                                                               03/26/2016 21:49:15 PAGE 2   
+
+  56   1      
+  57   1      
+  58   1      }
+  59          
+  60          
+  61          // 行列扫描的缺陷：当有多个键同时按下时，可能无法检测具体位置
+  62          // 不使用行列扫描，单独置行， 求列， 能否求出每个按键的位置？
+  63          u8 IO_KeyScan_G() {
+  64   1          u8 key = 0xFF;
+  65   1          key = key << 1 | MB;
+  66   1          return key;
+  67   1      }
+  68          
+  69          
+  70          
+  71          
+  72          
+  73          //g_NowKey ^ g_PreKey   :边缘触发 
+  74          //g_NowKey & (g_NowKey ^ g_PreKey):上升沿触发 
+  75          //g_PreKey & (g_NowKey ^ g_PreKey):下降沿触发 
+  76          //g_NowKey ^ (g_NowKey ^ g_PreKey):高电平触发(带消抖) 
+  77          //触发方式 ^ g_KeyCode :仅更新变化部分按键值 
+  78          
+  79          //1.支持长短按键同时并行触发
+  80          //2.将短按键触发判据改为下降沿触发(短按键释放)
+  81          
+  82          
+  83          
+  84          void key_scan_task() {
+  85   1          u8 key = ~IO_KeyScan_G();
+  86   1          static u16 CntPlus = 0;
+  87   1          g_PreKey = g_NowKey; 
+  88   1          g_NowKey = key;
+  89   1          g_ShortKeyCode = (g_PreKey & (g_NowKey ^ g_PreKey)) ^ g_ShortKeyCode;  // 下降沿触发
+  90   1      
+  91   1          //if ((g_PreKey & (g_NowKey ^ g_PreKey)) ^ g_LongKeyCode)
+  92   1          if (g_NowKey ^ g_PreKey ^ g_NowKey ^ g_LongKeyCode)         // 高电平触发(带消抖) 
+  93   1          { 
+  94   2              if(CntPlus++ > LONG_KEY_TIME)
+  95   2              {                           
+  96   3                  g_LongKeyCode |= g_NowKey;                          //添加长按键值
+  97   3              }    
+  98   2              if(CntPlus > SHORT_KEY_TIME) 
+  99   2                  g_ShortKeyCode &= g_NowKey;
+ 100   2      
+ 101   2          } 
+ 102   1          else 
+ 103   1          {       
+ 104   2              CntPlus = 0;                                        //无新增按键出现,计数归零 
+ 105   2              g_LongKeyCode &= g_NowKey;                          //剔除已释放的按键
+ 106   2              g_ShortKeyCode &= g_NowKey;
+ 107   2          }
+ 108   1      
+ 109   1      }
+ 110          
+ 111          
+ 112          
+ 113          //判断按键位置
+ 114          //0x01 MB_ID按下
+ 115          
+ 116          // status_mb_key 0 没有按下的状态
+ 117          //               1 5s内等待倒计时
+C51 COMPILER V9.52.0.0   KEY                                                               03/26/2016 21:49:15 PAGE 3   
+
+ 118          //               2 倒计时开始
+ 119          //               3 倒计时暂停
+ 120          //               4 倒计时继续
+ 121          void check_key_location() {
+ 122   1          if(g_ShortKeyCode == MB_ID)
+ 123   1          {
+ 124   2              if(!STY || !CHG)
+ 125   2              {
+ 126   3                  status_mb_key = 0;
+ 127   3                  POUT = 0;
+ 128   3              }
+ 129   2          else
+ 130   2          {
+ 131   3                  status_mb_key ++;
+ 132   3                  speak_mode_set &= ~0x03;
+ 133   3                  if(status_mb_key == 1)
+ 134   3                  {
+ 135   4                  // 开启5s内定时
+ 136   4                      enter_5s_countdown = YES;
+ 137   4                      reset_countdown_5s();
+ 138   4                      time_init();
+ 139   4                      time_colon_icon = 1;
+ 140   4                      countdown_signal_start = NO;
+ 141   4                      mute_beep_enable();
+ 142   4                      reset_countdown_speak();
+ 143   4                      speak_mode_set |= 0x01;
+ 144   4                  }
+ 145   3                  else if(status_mb_key == 2)
+ 146   3                  {
+ 147   4                  // 美白倒计时
+ 148   4                      enter_5s_countdown = NO;
+ 149   4                      // time_init();
+ 150   4                      countdown_signal_start = YES;
+ 151   4                      POUT = 1;
+ 152   4                      mute_beep_enable();
+ 153   4                      reset_countdown_speak();
+ 154   4                      speak_mode_set |= 0x01;    
+ 155   4                  }
+ 156   3                  else if(status_mb_key == 3)
+ 157   3                  {
+ 158   4                  // 定时时间暂停
+ 159   4                      countdown_signal_start = NO;
+ 160   4                      time_colon_icon = 1;
+ 161   4                      POUT = 0;
+ 162   4                      mute_beep_enable();
+ 163   4                      reset_countdown_speak();
+ 164   4                      speak_mode_set |= 0x01;
+ 165   4                  }
+ 166   3                  else if(status_mb_key == 4)
+ 167   3                  {
+ 168   4                  // 定时时间继续
+ 169   4                      countdown_signal_start = YES;
+ 170   4                  // 恢复成2
+ 171   4                      status_mb_key = 2;
+ 172   4                      POUT = 1;
+ 173   4                      mute_beep_enable();
+ 174   4                      reset_countdown_speak();
+ 175   4                      speak_mode_set |= 0x01;    
+ 176   4                  }
+ 177   3          }
+ 178   2                
+ 179   2          }
+C51 COMPILER V9.52.0.0   KEY                                                               03/26/2016 21:49:15 PAGE 4   
+
+ 180   1          if(g_KeyCode == 0 && g_LongKeyCode == MB_ID)
+ 181   1          {
+ 182   2          
+ 183   2              if(status_mb_key == 1)
+ 184   2              {
+ 185   3                  speak_mode_set &= ~0x03;
+ 186   3                  if(local_time.minute == 30)
+ 187   3                      local_time.minute = 0;
+ 188   3                  local_time.minute = local_time.minute + 5;
+ 189   3                  reset_countdown_5s();
+ 190   3                  mute_beep_enable();
+ 191   3                  reset_countdown_speak();
+ 192   3                  speak_mode_set |= 0x01;
+ 193   3              }
+ 194   2              if(status_mb_key == 3)
+ 195   2              {
+ 196   3                  speak_mode_set &= ~0x03;
+ 197   3                  local_time.second = 0;
+ 198   3                  if(local_time.minute == 30)
+ 199   3                      local_time.minute = 0;
+ 200   3                  local_time.minute = local_time.minute + 5;
+ 201   3                  mute_beep_enable();
+ 202   3                  reset_countdown_speak();
+ 203   3                  speak_mode_set |= 0x01;
+ 204   3              }
+ 205   2          }
+ 206   1          g_KeyCode = g_LongKeyCode;
+ 207   1      }
+ 208          
+ 209          
+ 210          void key_duty_task() {
+ 211   1          key_scan_task();
+ 212   1          check_key_location();
+ 213   1      }
+ 214          
+ 215          
+ 216          //PCA中断 speak发声
+ 217          void pca_isr() interrupt 7 using 1 
+ 218          {
+ 219   1          CCF0 = 0;       //  清中断标志
+ 220   1          if(!speak_mode_set){
+ 221   2          speak_beep_disable(); 
+ 222   2              mute_beep_disable();
+ 223   2              pca_next_target =  pca_next_target + T4kHz;
+ 224   2              CCAP0L = pca_next_target;
+ 225   2              CCAP0H = pca_next_target >> 8;       
+ 226   2          } else {
+ 227   2              speak_beep_enable();
+ 228   2              pca_next_target =  pca_next_target + T1000Hz;
+ 229   2              CCAP0L = pca_next_target;
+ 230   2              CCAP0H = pca_next_target >> 8;
+ 231   2         }
+ 232   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    400    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      9    ----
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.52.0.0   KEY                                                               03/26/2016 21:49:15 PAGE 5   
+
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

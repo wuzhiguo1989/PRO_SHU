@@ -1,0 +1,66 @@
+C51 COMPILER V9.52.0.0   SYNC                                                              01/15/2017 11:04:17 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SYNC
+OBJECT MODULE PLACED IN sync.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE sync.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "sync.h"
+   2          #include "task.h"
+   3          #include "utils.h"
+   4          #include "power.h"
+   5          #include "lm567.h"
+   6          
+   7          u8 idata key_task_interval = KEY_SCAN_TASK_INTERVAL;
+   8          
+   9          void init_system_tick() {
+  10   1          Timer0_12T();
+  11   1          Timer0_AsTimer();
+  12   1          Timer0_16bitAutoReload();
+  13   1          T0_Load(0xD8F0);
+  14   1          Timer0_InterruptEnable();
+  15   1          Timer0_Run();
+  16   1      }
+  17          
+  18          
+  19          
+  20          void sync_with_alert() // 2ms @24.000MHz
+  21          {
+  22   1          unsigned char i, j;
+  23   1          i = 47;
+  24   1          j = 174;
+  25   1          do
+  26   1          {
+  27   2              while (--j);
+  28   2          } while (--i);
+  29   1      }
+  30          
+  31          // 
+  32          void tm0_isr() interrupt TIMER0_VECTOR  using 1
+  33          {    
+  34   1          INT_PROC |= TICK_DUTY;
+  35   1          if (!--key_task_interval) {
+  36   2              INT_PROC |= KEY_DUTY;
+  37   2              key_task_interval = KEY_SCAN_TASK_INTERVAL;
+  38   2          }
+  39   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     71    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =      1    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

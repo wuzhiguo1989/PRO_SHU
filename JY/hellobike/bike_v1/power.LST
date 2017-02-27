@@ -1,0 +1,108 @@
+C51 COMPILER V9.52.0.0   POWER                                                             11/01/2016 13:13:09 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE POWER
+OBJECT MODULE PLACED IN power.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE power.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "power.h"
+   2          #include "utils.h"
+   3          #include "task.h"
+   4          #include "beep.h"
+   5          #include "key.h"
+   6          #include "lm567.h"
+   7           
+   8          
+   9          void power_io_init() {
+  10   1          // ia
+  11   1          push_pull(1, 0x04);
+  12   1          // ib
+  13   1          push_pull(1, 0x08);
+  14   1      
+  15   1          power_work_disable();
+  16   1      
+  17   1          cpu_wake_up_disable();
+  18   1      }
+  19          
+  20          
+  21          // alter
+  22          void alter_beep_protect()
+  23          {
+  24   1          // CPU WAKE UP
+  25   1          push_pull(3, 0x40);
+  26   1      
+  27   1          // P32
+  28   1          pure_input(3, 0x04);
+  29   1          //push_pull(3, 0x08);
+  30   1      
+  31   1          // P33
+  32   1          pure_input(3, 0x08);
+  33   1      
+  34   1        //  INT0 = 1;
+  35   1          // 低电平报警
+  36   1         // IT0 = 1;   //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  37   1         // EX0 = DISABLE; 
+  38   1      
+  39   1          INT1 = 0;
+  40   1          // 低电平报警
+  41   1          IT1 = 0;   //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  42   1          EX1 = ENABLE; 
+  43   1      }
+  44          
+  45          
+  46          
+  47          // alter protection
+  48          // 中断0
+  49          void exint0() interrupt INT0_VECTOR  using 2
+  50          {
+  51   1          // 停止休眠、报警
+  52   1          speak_alter_pca_init();
+  53   1          INT_PROC |= ALTER_DUTY;
+  54   1      }
+  55          
+C51 COMPILER V9.52.0.0   POWER                                                             11/01/2016 13:13:09 PAGE 2   
+
+  56          void exint1() interrupt INT1_VECTOR  using 0
+  57          {
+  58   1          // 下降沿中断
+  59   1          if(!INT1)
+  60   1          {
+  61   2              EX1 = DISABLE;
+  62   2              INT_PROC |= LOCK_DUTY;
+  63   2          }
+  64   1          // 上升沿中断 && 不是串口开启
+  65   1          else
+  66   1          {
+  67   2              // 手动关造成的
+  68   2              if(!lock_fail_from_server)
+  69   2              {
+  70   3                  EX1 = DISABLE;
+  71   3                  INT_PROC |= LOCK_FAIL_DUTY;
+  72   3              }
+  73   2              else{
+  74   3                  EX1 = DISABLE;
+  75   3                  lock_fail_from_server = 0;
+  76   3                  EX1 = ENABLE;
+  77   3              } 
+  78   2          } 
+  79   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    131    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

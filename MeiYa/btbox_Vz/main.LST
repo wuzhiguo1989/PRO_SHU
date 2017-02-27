@@ -1,0 +1,189 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              12/02/2016 16:34:30 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "stc15wxxxx.h"
+   2          #include "share.h"
+   3          #include "sync.h"
+   4          #include "task.h"
+   5          #include "adc.h"
+   6          #include "time.h"
+   7          #include "utils.h"
+   8          #include "key.h"
+   9          #include "74hc595.h"
+  10          
+  11          
+  12          void Delay1000ms()    //@24.000MHz
+  13          {
+  14   1        unsigned char i, j, k;
+  15   1      
+  16   1        _nop_();
+  17   1        _nop_();
+  18   1        i = 92;
+  19   1        j = 50;
+  20   1        k = 238;
+  21   1        do
+  22   1        {
+  23   2          do
+  24   2          {
+  25   3            while (--k);
+  26   3          } while (--j);
+  27   2        } while (--i);
+  28   1      }
+  29          
+  30          void main()
+  31          {
+  32   1        EA = 0;
+  33   1        time_init(); 
+  34   1        Led_io_init();
+  35   1        system_io_init();
+  36   1        Source_clock_gen();
+  37   1        init_system_tick();
+  38   1        dispaly_driver_init();
+  39   1        interrupt_control_init();
+  40   1        // status_system = 0;
+  41   1        
+  42   1        // status_mb_key = 0;
+  43   1        DisplayScanInit();
+  44   1      
+  45   1        // Delay1000ms();
+  46   1      
+  47   1        Displayclean();
+  48   1      
+  49   1        init_adc();
+  50   1      
+  51   1        Source_Clock_Stop();
+  52   1      
+  53   1      
+  54   1          charge_on = 1;
+  55   1      
+C51 COMPILER V9.52.0.0   MAIN                                                              12/02/2016 16:34:30 PAGE 2   
+
+  56   1          EA = 1;
+  57   1      
+  58   1          // 是否在充电
+  59   1          if(CHG)
+  60   1          {
+  61   2              charge_on = 0;
+  62   2              INT_PROC |= SYSTEM_START_DUTY;
+  63   2              Source_Clock_Run();
+  64   2          }
+  65   1        
+  66   1          while(1)
+  67   1          {
+  68   2          reset_watch_dog();
+  69   2              // 睡眠
+  70   2              if(INT_PROC & SLEEP_DUTY){
+  71   3                  Displayclean();
+  72   3                  PCON = 0x02;
+  73   3              }
+  74   2              if(INT_PROC & SYSTEM_START_DUTY){
+  75   3                  P23 = 1;
+  76   3                  // POUT出高电平
+  77   3                  POUT = 1;
+  78   3                  
+  79   3                  reset_cnt_exit();
+  80   3                  // 欢迎使用美牙产品
+  81   3                  P31 = 1;
+  82   3                  P55 = 0;
+  83   3                  P12 = 1;
+  84   3                  start_work_detect();
+  85   3                  key_sampling = YES;
+  86   3                  // countdown_signal_start = YES;
+  87   3                  INT_PROC &= ~SYSTEM_START_DUTY;
+  88   3                  continue;
+  89   3              }
+  90   2          if (INT_PROC & TICK_DUTY)
+  91   2              {
+  92   3                  count_down_task();
+  93   3            INT_PROC &= ~TICK_DUTY;
+  94   3                  continue;
+  95   3              }
+  96   2              // 500ms 测电池电压
+  97   2              if(INT_PROC & ADC_DUTY){
+  98   3                power_level_cal();
+  99   3                INT_PROC &= ~ADC_DUTY;
+ 100   3                continue;
+ 101   3              }
+ 102   2              // 10ms 刷新一次按键
+ 103   2          if (INT_PROC & KEY_DUTY) {
+ 104   3                  if(!charge_on)
+ 105   3                      key_duty_task();
+ 106   3                  Display_digit_on_screen();
+ 107   3                  if(adc_sampling)
+ 108   3                      no_work_exit();
+ 109   3                  INT_PROC &= ~KEY_DUTY;
+ 110   3                  continue;
+ 111   3              }
+ 112   2      
+ 113   2          if (INT_PROC & REFRESH_DUTY) {
+ 114   3            DisplayScan();
+ 115   3                  INT_PROC &= ~REFRESH_DUTY;
+ 116   3                  continue;
+ 117   3              }
+C51 COMPILER V9.52.0.0   MAIN                                                              12/02/2016 16:34:30 PAGE 3   
+
+ 118   2      
+ 119   2      
+ 120   2      
+ 121   2      
+ 122   2         //   if(status_system == 2)
+ 123   2         //   {
+ 124   2            // Displayclean();
+ 125   2            // continue;
+ 126   2         //   }
+ 127   2      
+ 128   2         //   if(!CHG)  
+ 129   2         //   {
+ 130   2         //       if(!charge_on)
+ 131   2         //       {
+ 132   2         //           status_system = 5;
+ 133   2         //           P23 = 0;
+ 134   2         //           POUT = 0;
+ 135   2         //           status_mb_key = 0;
+ 136   2         //           EX0 = ENABLE;
+ 137   2         //           EX1 = DISABLE;
+ 138   2         //           time_colon_icon = 0;
+ 139   2         //              P31 = P12 = P55 = 1;
+ 140   2         //           Source_Clock_Stop();
+ 141   2         //           countdown_signal_start = NO;
+ 142   2         //           time_init();
+ 143   2         //           charge_on = 1;
+ 144   2         //       }
+ 145   2         //   }
+ 146   2      
+ 147   2         //   if(status_system == 5)
+ 148   2         //   {
+ 149   2         //     if(CHG)
+ 150   2         //     {
+ 151   2         //       status_system = 0;
+ 152   2         //           Displayclean();
+ 153   2            //  charge_on = 0;
+ 154   2         //           countdown_signal_start = NO;
+ 155   2         //           status_mb_key = 0;
+ 156   2         //           // 关闭+、-灯
+ 157   2         //           P23 = 0;
+ 158   2         //     }
+ 159   2         //   }
+ 160   2      
+ 161   2        }
+ 162   1      } 
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    214    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,156 @@
+C51 COMPILER V9.52.0.0   SYNC                                                              03/26/2016 21:49:14 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SYNC
+OBJECT MODULE PLACED IN sync.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE sync.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "sync.h"
+   2          #include "task.h"
+   3          #include "time.h"
+   4          #include "share.h"
+   5          #include "74hc595.h"
+   6          #include "utils.h"
+   7          #include "key.h"
+   8          
+   9          u8 second_task_interval = COUNTER_PER_SECOND;
+  10          u8 key_task_interval = 4;
+  11          u8 speed_cal_interval = SPEED_TASK_INTERVAL;
+  12          u16 countdown_5s_interval = COUNTDOWN;
+  13          u8 second_speak_interval = KEY_SCAN_TASK_INTERVAL;
+  14          u8 speak_timer = 0;
+  15          
+  16          void reset_countdown_5s()  
+  17          {
+  18   1          countdown_5s_interval = COUNTDOWN;
+  19   1      }
+  20          
+  21          void reset_countdown_speak()  
+  22          {
+  23   1          second_speak_interval = KEY_SCAN_TASK_INTERVAL;
+  24   1      }
+  25          
+  26          void init_system_tick() {
+  27   1          Timer0_12T();
+  28   1          Timer0_AsTimer();
+  29   1          Timer0_16bitAutoReload();
+  30   1          T0_Load(0xD8F0);
+  31   1          Timer0_InterruptEnable();
+  32   1          Timer0_Run();
+  33   1      }
+  34          
+  35          
+  36          void Timer2Init(void)       //100微秒@24.000MHz
+  37          {
+  38   1          Timer2_12T();
+  39   1          Timer2_AsTimer();
+  40   1          T2_Load(0xE890);
+  41   1          Timer2_InterruptEnable();
+  42   1          Timer2_Run();
+  43   1      }
+  44          
+  45          
+  46          
+  47          void tm0_isr() interrupt TIMER0_VECTOR  using 1
+  48          {    
+  49   1      
+  50   1          if(!--key_task_interval)
+  51   1          {
+  52   2              INT_PROC |= KEY_DUTY;
+  53   2              key_task_interval = 4;
+  54   2          }
+  55   1          //
+C51 COMPILER V9.52.0.0   SYNC                                                              03/26/2016 21:49:14 PAGE 2   
+
+  56   1          if(!--speed_cal_interval)
+  57   1          {
+  58   2              INT_PROC |= ADC_DUTY;
+  59   2              speed_cal_interval = SPEED_TASK_INTERVAL;
+  60   2          }
+  61   1      
+  62   1          // 1000ms 刷新一次时间
+  63   1          if(countdown_signal_start)
+  64   1          {
+  65   2              if(!--second_task_interval)
+  66   2              {
+  67   3                  // 计时图标闪烁
+  68   3                  time_colon_icon = ~time_colon_icon;
+  69   3                  // 计算时间
+  70   3                  if(--local_time.second == 255)
+  71   3                  {
+  72   4                      local_time.second = 59;
+  73   4                      if(!local_time.minute --)
+  74   4                      {
+  75   5                          POUT = 0;
+  76   5                          status_mb_key = 0;
+  77   5                          countdown_signal_start = NO;
+  78   5                          speak_timer = 0;
+  79   5                          mute_beep_enable();
+  80   5                          speak_mode_set |= 0x02;
+  81   5                      }
+  82   4                      
+  83   4      
+  84   4                  }
+  85   3                  second_task_interval = COUNTER_PER_SECOND;
+  86   3              }
+  87   2          }
+  88   1      
+  89   1          if(enter_5s_countdown)
+  90   1          {
+  91   2              if(!--countdown_5s_interval)
+  92   2              {
+  93   3                  status_mb_key = 0;
+  94   3                  enter_5s_countdown = NO;
+  95   3              }
+  96   2          }
+  97   1      
+  98   1          if(speak_mode_set & 0x01)
+  99   1          {
+ 100   2              if(!--second_speak_interval)
+ 101   2              {
+ 102   3                  second_speak_interval = KEY_SCAN_TASK_INTERVAL;
+ 103   3                  speak_mode_set &= ~0x01;
+ 104   3              }
+ 105   2          }
+ 106   1      
+ 107   1          if(speak_mode_set & 0x02)
+ 108   1          {
+ 109   2              if(!--second_speak_interval)
+ 110   2              {
+ 111   3                  second_speak_interval = KEY_SCAN_TASK_INTERVAL;
+ 112   3                  speak_timer ++;
+ 113   3                  MUTE = ~ MUTE;
+ 114   3                  if(speak_timer == 3)
+ 115   3                  {
+ 116   4                      speak_mode_set &= ~0x02;
+ 117   4                      speak_timer = 0;
+C51 COMPILER V9.52.0.0   SYNC                                                              03/26/2016 21:49:14 PAGE 3   
+
+ 118   4                  }
+ 119   3              }
+ 120   2          }
+ 121   1      
+ 122   1      }
+ 123          
+ 124          void tm2_isr() interrupt TIMER2_VECTOR  using 2
+ 125          {
+ 126   1          INT_PROC |= REFRESH_DUTY;
+ 127   1      }
+ 128          
+ 129          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    225    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      7    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

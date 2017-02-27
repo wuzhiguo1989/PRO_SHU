@@ -1,0 +1,224 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              11/08/2016 20:38:38 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\list\main.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\main.lst) TABS(2) OBJECT(.\list
+                    -\main.obj)
+
+line level    source
+
+   1          #include "typealias.h"
+   2          #include "config.h"
+   3          #include "uart.h"
+   4          #include "task.h"
+   5          #include "dwscreen.h"
+   6          #include "alert.h"
+   7          #include "adc.h"
+   8          #include "process.h"
+   9          #include "e2prom.h"
+  10          #include <stdio.h>
+  11          #include <stdlib.h>
+  12          #include <string.h>
+  13          // #include "extension.h"
+  14          
+  15          void Delay1000ms()    //@24.000MHz
+  16          {
+  17   1        unsigned char i, j, k;
+  18   1      
+  19   1        _nop_();
+  20   1        _nop_();
+  21   1        i = 92;
+  22   1        j = 50;
+  23   1        k = 238;
+  24   1        do
+  25   1        {
+  26   2          do
+  27   2          {
+  28   3            while (--k);
+  29   3          } while (--j);
+  30   2        } while (--i);
+  31   1      }
+  32          
+  33          void main(void)
+  34          {
+  35   1          init_io_alert();
+  36   1          init_adc();
+  37   1          valve_control_io_init();
+  38   1          uart_init();
+  39   1          system_tick_init();
+  40   1          workflow_init();
+  41   1          dw_init();
+  42   1          alert_beep_disable(); 
+  43   1          count_down_init_all_task();
+  44   1          Extern0_Init();
+  45   1          EA = 1;
+  46   1          Timer0_Run();
+  47   1          tem_around = temperature_around_cal();
+  48   1          tem_fan = temperature_fan_cal();
+  49   1          send_two_value_to_screen(ADDR_TEMPERATURE_AROUND, tem_around, tem_fan);
+  50   1        password_init();
+  51   1          param_init();
+  52   1          Delay1000ms();
+  53   1        dw_screen_init();
+  54   1          Delay5ms();
+C51 COMPILER V9.52.0.0   MAIN                                                              11/08/2016 20:38:38 PAGE 2   
+
+  55   1          system_enter_idle();
+  56   1          available_system_set();
+  57   1          while (1)
+  58   1        {
+  59   2              
+  60   2              reset_watch_dog();
+  61   2              if (INT_PROC & DW_DUTY) {
+  62   3                  printf("DW_DUTY, PoW\r\n");
+  63   3      
+  64   3              //    dw_read_data_from_screen();
+  65   3                  INT_PROC &= ~DW_DUTY;
+  66   3                  continue;
+  67   3              }
+  68   2              if (INT_PROC & WF_FINISH_DUTY) {
+  69   3                  printf("WF_FINISH_DUTY, PoW\r\n");
+  70   3                  wf_finish_duty_task();
+  71   3                  INT_PROC &= ~WF_FINISH_DUTY;
+  72   3                  continue;
+  73   3              }
+  74   2      
+  75   2              if(INT_PROC & START_DUTY)
+  76   2              {
+  77   3                  syc_signal_start_fan(1);
+  78   3                  printf("START\r\n");
+  79   3                  count_down_cancle_all_task();
+  80   3                  valve_disable();
+  81   3                  detected_feed_full_start();
+  82   3                  INT_PROC &= ~START_DUTY;
+  83   3                  continue;
+  84   3              }
+  85   2              // 报警产生关闭
+  86   2              if(INT_PROC & SYSTEM_END_DUTY)
+  87   2              {
+  88   3                  printf("END\r\n");
+  89   3                  fan_work_disable();
+  90   3                  count_down_cancle_all_task();
+  91   3                  valve_disable();
+  92   3                  system_enter_idle();
+  93   3                  start_fan_signal = 0;
+  94   3                  syc_signal_start_fan(0);
+  95   3                  INT_PROC &= ~SYSTEM_END_DUTY;
+  96   3                  continue;
+  97   3              }
+  98   2              // 5ms system tick-tock
+  99   2              if (INT_PROC & TICK_DUTY) {
+ 100   3                  count_down_all_task();
+ 101   3                  if (UART_RX_Block(&COM2)) 
+ 102   3                      call_for_duty(COM2_RX_DUTY);
+ 103   3                  INT_PROC &= ~TICK_DUTY;
+ 104   3                  continue;
+ 105   3              }
+ 106   2      
+ 107   2              if (INT_PROC & COM2_RX_DUTY) {
+ 108   3                  // int len = dw_cache_response(RX2_Buffer);
+ 109   3                  // printf("COM2_RX_DUTY, PoW\r\n");
+ 110   3                  // UART_Finish_Rx(&COM2);
+ 111   3                  // dw_dispatch_response(dw_cached_response, len);
+ 112   3            int len = dw_cache_response(RX2_Buffer);
+ 113   3                  // printf("COM2_RX_DUTY, PoW\r\n");
+ 114   3                  UART_Finish_Rx(&COM2);
+ 115   3                  dw_dispatch_response(dw_cached_response, len);
+ 116   3            if (simple_workflow[COM2_ID].status == processing && simple_workflow[COM2_ID].callback != NULL) 
+C51 COMPILER V9.52.0.0   MAIN                                                              11/08/2016 20:38:38 PAGE 3   
+
+ 117   3                  {
+ 118   4                      simple_workflow[COM2_ID].callback();
+ 119   4                      simple_workflow[COM2_ID].status = wait_for_finish;
+ 120   4                      call_for_duty(S_WF_DUTY);
+ 121   4                  }
+ 122   3                  INT_PROC &= ~COM2_RX_DUTY;
+ 123   3                  continue;
+ 124   3              }
+ 125   2              if (INT_PROC & WF_FLOW_DUTY) {
+ 126   3                  wf_flow_duty_task();
+ 127   3                  INT_PROC &= ~WF_FLOW_DUTY;
+ 128   3                  continue;
+ 129   3              }
+ 130   2      
+ 131   2              if (INT_PROC & S_WF_DUTY) {
+ 132   3                  s_wf_duty_task();
+ 133   3                  INT_PROC &= ~S_WF_DUTY;
+ 134   3                  continue;
+ 135   3              }
+ 136   2              if (INT_PROC & SECOND_DUTY) {
+ 137   3                  // dw_gen_task();
+ 138   3                  // wf_chk_timeout_duty_task();
+ 139   3                  // s_wf_chk_timeout_duty_task();
+ 140   3                  alert_for_temperature();
+ 141   3                  alert_for_overload();
+ 142   3                  alert_beep();
+ 143   3                  INT_PROC &= ~SECOND_DUTY;
+ 144   3                  continue;
+ 145   3              }
+ 146   2              if(INT_PROC & FEED_SUCTION_END_DUTY)
+ 147   2              {
+ 148   3                  fan_work_disable();
+ 149   3                  printf("FEED_SUCTION_END_DUTY\r\n");
+ 150   3                  count_down_cancle_all_task();
+ 151   3                  //人工关机
+ 152   3                  if(!start_fan_signal){
+ 153   4                      syc_signal_start_fan(0);
+ 154   4                      printf("idle\r\n");
+ 155   4                      system_enter_idle();
+ 156   4                  } else {
+ 157   4                      // 故障
+ 158   4                      if(alert_for_system & 0x14)
+ 159   4                      {
+ 160   5                          system_enter_idle();
+ 161   5                          // 同步按钮
+ 162   5                          start_fan_signal = 0;
+ 163   5                          syc_signal_start_fan(0);
+ 164   5                      }
+ 165   4                      // 料满
+ 166   4                      if(alert_for_system & ALTER_FULL_FEED)
+ 167   4                          system_enter_alter_feed_full();
+ 168   4                  }
+ 169   3                  feed_suction_callback();
+ 170   3                  INT_PROC &=  ~FEED_SUCTION_END_DUTY;
+ 171   3                  continue;
+ 172   3              }
+ 173   2              if(INT_PROC & ALTER_BEEP_DUTY)
+ 174   2              {
+ 175   3                  alert_beep_enable();
+ 176   3                  syc_signal_beep();
+ 177   3                  INT_PROC &= ~ALTER_BEEP_DUTY;
+ 178   3                  continue;
+C51 COMPILER V9.52.0.0   MAIN                                                              11/08/2016 20:38:38 PAGE 4   
+
+ 179   3              }
+ 180   2              if(INT_PROC & ALTER_BEEP_CLOSE_DUTY)
+ 181   2              {
+ 182   3                  alert_beep_disable();
+ 183   3                  INT_PROC &= ~ALTER_BEEP_CLOSE_DUTY;
+ 184   3                  continue;
+ 185   3              }
+ 186   2        }
+ 187   1      }
+ 188          
+ 189          
+ 190          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    560    ----
+   CONSTANT SIZE    =     82    ----
+   XDATA SIZE       =   ----       2
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

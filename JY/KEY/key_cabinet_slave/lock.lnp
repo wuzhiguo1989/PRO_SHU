@@ -1,0 +1,11 @@
+"STARTUP.obj",
+"ble.obj",
+"sync.obj",
+"usart.obj",
+"main.obj",
+"task.obj",
+"share.obj",
+"config.obj" 
+TO "lock" 
+
+REMOVEUNUSED 

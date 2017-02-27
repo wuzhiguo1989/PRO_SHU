@@ -1,0 +1,113 @@
+C51 COMPILER V9.52.0.0   INTERACT                                                          01/06/2017 11:17:05 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE INTERACT
+OBJECT MODULE PLACED IN interact.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE interact.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "interact.h"
+   2          #include "lm567.h"
+   3          #include "utils.h"
+   4          #include "task.h"
+   5          #include "power.h"
+   6          #include "key.h"
+   7          #include "beep.h"
+   8          
+   9          static u8 xdata g_PreKey;   //前次按键值 
+  10          static u8 xdata g_NowKey;   //当前按键值 
+  11          u8 g_ShortKeyCode = 0;  //短按键,单次触发 
+  12          u8 g_LongKeyCode = 0;   //长按键,持续触发
+  13          u8 signal_lock_shake = 0; 
+  14          
+  15          
+  16          #define KEY_INT1  0x01
+  17          
+  18          // KeyScan for common use without any speedup
+  19          // For each pin is separate
+  20          static u8 IO_KeyScan_G() {
+  21   1        u8 key = 0xFE;
+  22   1        key |= INT1;
+  23   1        return key;
+  24   1      }
+  25          
+  26          // 
+  27          // g_NowKey ^ g_PreKey  : 边缘触发 
+  28          // g_NowKey & (g_NowKey ^ g_PreKey): 上升沿触发 
+  29          // g_PreKey & (g_NowKey ^ g_PreKey): 下降沿触发 
+  30          // g_NowKey ^ (g_NowKey ^ g_PreKey): 高电平触发(带消抖) 
+  31          // 触发方式 ^ g_KeyCode : 仅更新变化部分按键值 
+  32          
+  33          //1.支持长短按键同时并行触发
+  34          //2.将短按键触发判据改为下降沿触发(短按键释放)
+  35          void key_scan_task() {
+  36   1        static u8 CntPlus = 0;
+  37   1        
+  38   1        g_PreKey = g_NowKey; 
+  39   1        g_NowKey = ~IO_KeyScan_G();
+  40   1        g_ShortKeyCode = (g_PreKey & (g_NowKey ^ g_PreKey)) ^ g_ShortKeyCode;  // 下降沿触发 
+  41   1      
+  42   1        if (g_NowKey ^ g_PreKey ^ g_NowKey ^ g_LongKeyCode)     // 高电平触发(带消抖) 
+  43   1        { 
+  44   2          if(CntPlus++ > LONG_KEY_TIME)           g_LongKeyCode |= g_NowKey;        
+  45   2            // 添加长按键值  
+  46   2          if(CntPlus > SHORT_KEY_TIME) 
+  47   2            g_ShortKeyCode &= g_NowKey;
+  48   2          if(CntPlus > 0 && !signal_lock_shake){
+  49   3            reload_sleep_count_down();
+  50   3          }
+  51   2          if(CntPlus > 0){
+  52   3            power_lock_work();
+  53   3            signal_lock_shake = 1;
+  54   3          }
+  55   2        } 
+C51 COMPILER V9.52.0.0   INTERACT                                                          01/06/2017 11:17:05 PAGE 2   
+
+  56   1        else 
+  57   1        {     
+  58   2          CntPlus = 0;
+  59   2          if(signal_lock_shake){
+  60   3            EX1 = ENABLE;
+  61   3            power_work_disable();
+  62   3            signal_lock_shake = 0;
+  63   3          }               // 无新增按键出现,计数归零 
+  64   2          g_LongKeyCode &= g_NowKey;              // 剔除已释放的按键
+  65   2          g_ShortKeyCode &= g_NowKey;
+  66   2        }
+  67   1      }
+  68          
+  69          
+  70          
+  71          u8 g_LongKeyCode_pre = 0;
+  72          void key_task_duty()
+  73          {
+  74   1        key_scan_task();
+  75   1        if(!g_LongKeyCode_pre && g_LongKeyCode){
+  76   2          if(g_LongKeyCode & KEY_INT1){
+  77   3            INT_PROC |= LOCK_DUTY;
+  78   3            signal_lock_shake = 0;
+  79   3           }
+  80   2          }
+  81   1          g_LongKeyCode_pre = g_LongKeyCode;
+  82   1      }
+  83          
+  84          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    226    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =      7    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

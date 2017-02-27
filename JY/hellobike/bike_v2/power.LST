@@ -1,0 +1,229 @@
+C51 COMPILER V9.52.0.0   POWER                                                             01/17/2017 11:51:46 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE POWER
+OBJECT MODULE PLACED IN power.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE power.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "power.h"
+   2          #include "utils.h"
+   3          #include "task.h"
+   4          #include "beep.h"
+   5          #include "key.h"
+   6          #include "lm567.h"
+   7          #include "key.h"
+   8           
+   9          
+  10          void power_io_init() {
+  11   1          // ia
+  12   1          push_pull(1, 0x04);
+  13   1          push_pull(1, 0x08);
+  14   1          // ib
+  15   1          push_pull(1, 0x01);
+  16   1          push_pull(1, 0x02);
+  17   1      
+  18   1          power_work_disable();
+  19   1      
+  20   1      }
+  21          
+  22          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+  23          #define adc_key_channel  5
+  24          // 2V
+  25          // #define ADC_VALUE_ON 0x026C 
+  26          // 1V
+  27          #define ADC_VALUE_ON 0x0136
+  28          void init_adc()
+  29          {
+  30   1          P1ASF |= 0x20;                      // P1(ch) -> P1 ^ 5
+  31   1          ADC_RES = 0;                        // high 8 bit       
+  32   1          ADC_RESL = 0;                       // low 2 bit
+  33   1          ADC_CONTR = ADC_POWER | ADC_SPEED | adc_key_channel;
+  34   1      }
+  35          
+  36          static u16 GetADCResult()
+  37          {
+  38   1        ADC_CONTR |= ADC_START;
+  39   1        _nop_();                        
+  40   1        _nop_();
+  41   1        _nop_();
+  42   1        _nop_();
+  43   1        wait_adc_finish();              
+  44   1        ADC_CONTR &= ~ADC_FLAG;
+  45   1      
+  46   1        return ((ADC_RES << 2) | ADC_RESL);
+  47   1      }
+  48          
+  49          
+  50          
+  51          // alter
+  52          void alter_beep_protect()
+  53          {
+  54   1          // K2|P15
+  55   1          pure_input(1, 0x40);
+C51 COMPILER V9.52.0.0   POWER                                                             01/17/2017 11:51:46 PAGE 2   
+
+  56   1      
+  57   1          // K_POWER|P37
+  58   1          push_pull(3, 0x80);
+  59   1      
+  60   1          // P32
+  61   1          push_pull(3, 0x04);
+  62   1      
+  63   1          k_power_disable();
+  64   1      
+  65   1          // push_pull(3, 0x08);
+  66   1      
+  67   1          // P33 = 0;
+  68   1      
+  69   1          // K1|P33
+  70   1          pure_input(3, 0x08);
+  71   1      
+  72   1          INT1 = 0;
+  73   1          // 低电平报警
+  74   1          IT1 = 1;   //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  75   1          EX1 = DISABLE; 
+  76   1      }
+  77          
+  78          u8 status_lock_detect()
+  79          {
+  80   1          u16 key_adc_value = 0;
+  81   1          // 检测ADC
+  82   1          key_adc_value = GetADCResult();
+  83   1          // 低电平是开
+  84   1          // 高电平是关
+  85   1          if(key_adc_value > ADC_VALUE_ON){
+  86   2              return 0;
+  87   2          } else {
+  88   2              return 1;
+  89   2          }
+  90   1      }
+  91          
+  92          
+  93          
+  94          
+  95          u8 key_status_on = 0;
+  96          u8 key_status_on_pre = 0;
+  97          volatile u8 cnt_on_time_plus = 0;
+  98          volatile u8 detect_key_time_start = 0;
+  99          u8 status_lock_on_detect()
+ 100          {
+ 101   1          u16 key_adc_value = GetADCResult();
+ 102   1          // TX1_write2buff(key_adc_value >> 8);
+ 103   1          // TX1_write2buff(key_adc_value);
+ 104   1          // 低电平是开
+ 105   1          // 高电平是关
+ 106   1          if(key_adc_value > ADC_VALUE_ON)
+ 107   1              key_status_on = 1;
+ 108   1          else
+ 109   1              key_status_on = 0;
+ 110   1          if(!key_status_on && !key_status_on_pre){
+ 111   2              cnt_on_time_plus ++;
+ 112   2          } else {
+ 113   2              cnt_on_time_plus = 0;
+ 114   2          }
+ 115   1          key_status_on_pre = key_status_on;
+ 116   1          return cnt_on_time_plus;
+ 117   1      }
+C51 COMPILER V9.52.0.0   POWER                                                             01/17/2017 11:51:46 PAGE 3   
+
+ 118          
+ 119          u8 key_status_off = 0;
+ 120          u8 key_status_off_pre = 0;
+ 121          volatile u8 cnt_off_time_plus = 0;
+ 122          u8 status_lock_off_detect()
+ 123          {
+ 124   1          u16 key_adc_value = GetADCResult();
+ 125   1          // TX1_write2buff(key_adc_value >> 8);
+ 126   1          // TX1_write2buff(key_adc_value);
+ 127   1          // 低电平是开
+ 128   1          // 高电平是关
+ 129   1          if(key_adc_value > ADC_VALUE_ON)
+ 130   1              key_status_off = 1;
+ 131   1          else
+ 132   1              key_status_off = 0;
+ 133   1      
+ 134   1          if(key_status_off && key_status_off_pre){
+ 135   2              cnt_off_time_plus ++;
+ 136   2          } else {
+ 137   2              cnt_off_time_plus = 0;
+ 138   2          }
+ 139   1          key_status_off_pre = key_status_off;
+ 140   1          return cnt_off_time_plus;
+ 141   1      }
+ 142          
+ 143          
+ 144          u8 read_index = 0;
+ 145          u16 adc_value = 0;
+ 146          volatile u8 read_status_signal = 0;
+ 147          void init_lock_para(){
+ 148   1         read_index = 0;
+ 149   1         adc_value = 0;
+ 150   1         read_status_signal = 1; 
+ 151   1      }
+ 152          
+ 153          #define CNT_MAX_INDEX 16
+ 154          void read_lock_status(){
+ 155   1          if(read_index == CNT_MAX_INDEX){
+ 156   2              if((adc_value >> 4) > ADC_VALUE_ON){
+ 157   3                  status = off;
+ 158   3              } else {
+ 159   3                  status = on;
+ 160   3              }
+ 161   2              if(!restart_read_status_signal){
+ 162   3                  k_power_disable();
+ 163   3                  uart_send_status_restart();
+ 164   3                  ++ cnt_restart;
+ 165   3                  reload_resend_restart_count_down();
+ 166   3                  restart_read_status_signal = 1;
+ 167   3                  // 重新发送
+ 168   3              }
+ 169   2              else
+ 170   2              {
+ 171   3                  if(INT1 == 0 && status == off){
+ 172   4                      uart_send_status_now(0x00, 0x01);
+ 173   4                  } else if(INT1 == 1 && status == on){
+ 174   4                      uart_send_status_now(0x11, 0x01);
+ 175   4                  } else if(INT1 == 0 && status == on){
+ 176   4                      uart_send_status_now(0x10, 0x01);
+ 177   4                  } else if(INT1 == 1 && status == off){
+ 178   4                      uart_send_status_now(0x01, 0x01);
+ 179   4                  }
+C51 COMPILER V9.52.0.0   POWER                                                             01/17/2017 11:51:46 PAGE 4   
+
+ 180   3                  k_power_disable();
+ 181   3                  reload_sleep_count_down();
+ 182   3              }
+ 183   2              read_status_signal = 0;
+ 184   2      
+ 185   2          }
+ 186   1          adc_value += GetADCResult();
+ 187   1          ++ read_index;
+ 188   1      }
+ 189          
+ 190          
+ 191          
+ 192          void exint1() interrupt INT1_VECTOR  using 0
+ 193          {
+ 194   1          EX1 = DISABLE;
+ 195   1          INT_PROC |= LOCK_DETECT_DUTY; 
+ 196   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    458    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     11    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

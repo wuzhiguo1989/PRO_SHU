@@ -1,0 +1,171 @@
+C51 COMPILER V9.52.0.0   KEY                                                               12/02/2016 16:34:32 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE KEY
+OBJECT MODULE PLACED IN key.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE key.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "key.h"
+   2          #include "utils.h"
+   3          #include "string.h"
+   4          #include "share.h"
+   5          #include "time.h"
+   6          #include "sync.h"
+   7          #include "adc.h"
+   8          
+   9          static volatile u8 g_PreKey = 0;   //前次按键值 
+  10          static volatile u8 g_NowKey = 0;   //当前按键值 
+  11          volatile u8 g_ShortKeyCode = 0;    //短按键,单次触发 
+  12          volatile u8 g_LongKeyCode = 0;     //长按键,持续触发
+  13          volatile u8 g_KeyCode = 0;     //长按键,持续触发
+  14          
+  15          
+  16          
+  17          void system_io_init()
+  18          {
+  19   1          // P14（DOWN）
+  20   1          pure_input(1, 0x10);
+  21   1          // P13 (UP)
+  22   1          pure_input(1, 0x08); 
+  23   1          // P16 (LOCK)
+  24   1          pure_input(1, 0x40);        
+  25   1          // P15 (CHG) 
+  26   1          pure_input(1, 0x20);
+  27   1          // P32（INT0）
+  28   1          pure_input(3, 0x04);
+  29   1          // P33 (INT1)
+  30   1          pure_input(3, 0x08);
+  31   1          // P17 (电池电压测量口)
+  32   1          pure_input(1, 0x80);
+  33   1          // P23 (指示灯驱动)
+  34   1          push_pull(2, 0x08);
+  35   1          // P54 (POUT)
+  36   1          push_pull(5, 0x10);
+  37   1          // P30 (800K)
+  38   1          push_pull(3, 0x01);
+  39   1          // P23 (+\-)
+  40   1          push_pull(2, 0x08);
+  41   1          // P55 (启动提示)
+  42   1          push_pull(5, 0x20);
+  43   1          // P31 程序启动
+  44   1          push_pull(3, 0x02);
+  45   1          // P12 美牙结束
+  46   1          push_pull(1, 0x04);
+  47   1      
+  48   1          P55 = P31 = P12 = 1;
+  49   1      
+  50   1        POUT = 0;
+  51   1      
+  52   1          P23 = 0;
+  53   1      }
+  54          
+  55          
+C51 COMPILER V9.52.0.0   KEY                                                               12/02/2016 16:34:32 PAGE 2   
+
+  56          
+  57          
+  58          #define KEY_DOWN_ID 0x01
+  59          #define KEY_UP_ID   0x02
+  60          #define KEY_LOCK_ID 0x04
+  61          
+  62          
+  63          //g_NowKey ^ g_PreKey   :边缘触发 
+  64          //g_NowKey & (g_NowKey ^ g_PreKey):上升沿触发 
+  65          //g_PreKey & (g_NowKey ^ g_PreKey):下降沿触发 
+  66          //g_NowKey ^ (g_NowKey ^ g_PreKey):高电平触发(带消抖) 
+  67          //触发方式 ^ g_KeyCode :仅更新变化部分按键值 
+  68          
+  69          //1.支持长短按键同时并行触发
+  70          //2.将短按键触发判据改为下降沿触发(短按键释放)
+  71          
+  72          
+  73          
+  74          void key_scan_task() {
+  75   1          u8 key = ~ADC_KeyScan_G();
+  76   1          // u8 key = 0;
+  77   1          static u16 CntPlus = 0;
+  78   1          g_PreKey = g_NowKey; 
+  79   1          g_NowKey = key;
+  80   1          g_ShortKeyCode = (g_PreKey & (g_NowKey ^ g_PreKey)) ^ g_ShortKeyCode;  // 下降沿触发
+  81   1      
+  82   1          //if ((g_PreKey & (g_NowKey ^ g_PreKey)) ^ g_LongKeyCode)
+  83   1          if (g_NowKey ^ g_PreKey ^ g_NowKey ^ g_LongKeyCode)         // 高电平触发(带消抖) 
+  84   1          { 
+  85   2              if(CntPlus++ > LONG_KEY_TIME)
+  86   2              {                           
+  87   3                  g_LongKeyCode |= g_NowKey;                          //添加长按键值
+  88   3              }    
+  89   2              if(CntPlus > SHORT_KEY_TIME) 
+  90   2                  g_ShortKeyCode &= g_NowKey;
+  91   2      
+  92   2          } 
+  93   1          else 
+  94   1          {       
+  95   2              CntPlus = 0;                                        //无新增按键出现,计数归零 
+  96   2              g_LongKeyCode &= g_NowKey;                          //剔除已释放的按键
+  97   2              g_ShortKeyCode &= g_NowKey;
+  98   2          }
+  99   1      
+ 100   1      }
+ 101          
+ 102          void check_key_location() {
+ 103   1              if(g_ShortKeyCode == KEY_UP_ID)
+ 104   1              {
+ 105   2                  //+
+ 106   2                  local_time.minute ++;
+ 107   2                  if(local_time.minute == 60)
+ 108   2                      local_time.minute = 0;
+ 109   2              }
+ 110   1              if(g_ShortKeyCode == KEY_DOWN_ID)
+ 111   1              {
+ 112   2                  if(local_time.minute == 0)
+ 113   2                      local_time.minute = 60;
+ 114   2                      local_time.minute --;
+ 115   2              }
+ 116   1              if(g_KeyCode == 0 && g_LongKeyCode == KEY_UP_ID)
+ 117   1              {
+C51 COMPILER V9.52.0.0   KEY                                                               12/02/2016 16:34:32 PAGE 3   
+
+ 118   2                  //快速+开始
+ 119   2                  increase_fast_refresh = YES;
+ 120   2              }
+ 121   1              if(g_KeyCode == KEY_UP_ID && g_LongKeyCode == 0)
+ 122   1              {   
+ 123   2                  //快速+结束
+ 124   2                  increase_fast_refresh = NO;
+ 125   2              }
+ 126   1              if(g_KeyCode == 0 && g_LongKeyCode == KEY_DOWN_ID)
+ 127   1              {
+ 128   2                  //快速-开始
+ 129   2                  decrease_fast_refresh = YES;
+ 130   2              }
+ 131   1              if(g_LongKeyCode == 0 && g_KeyCode == KEY_DOWN_ID)
+ 132   1              {   
+ 133   2                      //快速-结束
+ 134   2                  decrease_fast_refresh = NO;
+ 135   2              }
+ 136   1              g_KeyCode = g_LongKeyCode;
+ 137   1      
+ 138   1      }
+ 139          
+ 140          
+ 141          void key_duty_task() {
+ 142   1              key_scan_task();
+ 143   1              check_key_location();
+ 144   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    264    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      7    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

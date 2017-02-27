@@ -1,0 +1,99 @@
+C51 COMPILER V9.52.0.0   SYNC                                                              09/07/2015 13:09:21 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SYNC
+OBJECT MODULE PLACED IN sync.OBJ
+COMPILER INVOKED BY: F:\Keil\C51\BIN\C51.EXE sync.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "sync.h"
+   2          #include "display.h"
+   3          #include "shared.h"
+   4          #include "intrins.h"
+   5          #include "stc15w408as.h"
+   6          #include "def.h"
+   7          #include "led.h"
+   8          
+   9          static u16 counter_for_pca5ms = PCA5ms;
+  10          static u8 sync_5ms = 0;
+  11          static u32 time_counter_store = 0;
+  12          static bit interrupt_duty = 0;
+  13          
+  14          void init_sync_timer() {// 定时器0 0.01ms
+  15   1          AUXR &= 0x7F;       //定时器时钟12T模式
+  16   1          TMOD &= 0xF0;       //设置定时器模式
+  17   1          TL0 = 0xF1;     //设置定时初值
+  18   1          TH0 = 0xFF;     //设置定时初值
+  19   1          TF0 = 0;        //清除TF0标志
+  20   1          TR0 = 1;        //定时器0开始计时
+  21   1          PT0 = 1;
+  22   1          ET0 = 1;
+  23   1      }
+  24          
+  25          void init_ac_driver() {
+  26   1      //    PX0 = 1;
+  27   1          INT0 = 1;
+  28   1          IT0 = 0;                    //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  29   1          EX0 = ENABLE;                
+  30   1      }
+  31          
+  32          
+  33          void reset_all_counters() {
+  34   1          reset_counter_for_cycle();
+  35   1      }
+  36          
+  37          
+  38          
+  39          void exint0_isr() interrupt 0 using 1  
+  40          {
+  41   1          if(!INT0)
+  42   1              interrupt_duty = 1;
+  43   1      }
+  44          
+  45          // 5ms
+  46          void tm0_isr() interrupt 1 using 3       // interval 5ms 
+  47          {
+  48   1      
+  49   1          // 5ms old tick-tock 
+  50   1          --counter_for_pca5ms;
+  51   1          if (!counter_for_pca5ms) {
+  52   2              INT_PROC |= TICK_DUTY;
+  53   2              ++counter_for_cycle;
+  54   2              counter_for_pca5ms = PCA5ms;
+  55   2          }
+C51 COMPILER V9.52.0.0   SYNC                                                              09/07/2015 13:09:21 PAGE 2   
+
+  56   1          if(interrupt_duty)
+  57   1          {
+  58   2              ++time_counter_store;
+  59   2              if(INT0)
+  60   2              {
+  61   3                  interrupt_duty = 0;
+  62   3                  time_counter = time_counter_store;
+  63   3                  time_counter_store = 0;
+  64   3                  if(time_counter >= 60)
+  65   3                      INT_PROC |= EXINT_PROC;
+  66   3                  else
+  67   3                      time_counter = 0;
+  68   3              }
+  69   2          }
+  70   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    210    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =      7    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

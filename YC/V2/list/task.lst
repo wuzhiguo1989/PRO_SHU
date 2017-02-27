@@ -1,0 +1,532 @@
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE TASK
+OBJECT MODULE PLACED IN .\list\task.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE task.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\task.lst) TABS(2) OBJECT(.\list
+                    -\task.obj)
+
+line level    source
+
+   1          #include "task.h"
+   2          #include <string.h>
+   3          #include "adc.h"
+   4          #include "alert.h"
+   5          #include "task.h"
+   6          #include "config.h"
+   7          #include "uart.h"
+   8          #include "process.h"
+   9          #include "e2prom.h"
+  10          #include <stdio.h>
+  11          #include <stdlib.h>
+  12          
+  13          // SYSTEM ALL INT MASK
+  14          volatile u16 xdata INT_PROC = 0;
+  15          // 系统开始停止状态位
+  16          volatile bool start_fan_signal = 0;
+  17          // 放料过程料位时间计时标记位
+  18          volatile bool signal_detect_enable = NO;
+  19          // 延时开机计时状态位
+  20          volatile bool signal_feed_full_delay = NO;
+  21          // 放料确认完成
+  22          volatile bool signal_feed_lack_keep = NO;
+  23          
+  24          bool signal_rise_fall = 0;
+  25          
+  26          u8 counter_for_spray_wash_logic;
+  27          u8 lack_pre = 0;
+  28          
+  29          
+  30          #define T200Hz  (MAIN_Fosc / 12 / 100)
+  31          #define T0_THL  (65536ul - T200Hz)
+  32          #define COUNTER_PER_SECOND      100
+  33          #define SECONDS_PER_MINUTE      60
+  34          
+  35          
+  36          // 缺料确认时间
+  37          static xdata u16 time_feed_lack_keep = 0;
+  38          // 料满延迟启动时间
+  39          static xdata u16 time_task_interval = 0;
+  40          // 缺料检测
+  41          static xdata u16 time_not_exist = 0;
+  42          // 记录料满时间
+  43          static xdata u16 time_feed_full = 0;
+  44          
+  45          static u8 second_task_interval = COUNTER_PER_SECOND;
+  46          
+  47          volatile u8 sigal_available = 0;
+  48          volatile u8 time_read_flag = 0;
+  49          
+  50          volatile u8 time_year = 0;
+  51          volatile u8 time_month = 0;
+  52          volatile u8 time_day = 0;  
+  53          
+  54          void system_tick_init() {
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 2   
+
+  55   1          Timer0_12T();
+  56   1          Timer0_AsTimer();
+  57   1          Timer0_16bitAutoReload();
+  58   1          Timer0_Load(T0_THL);
+  59   1          Timer0_InterruptEnable();
+  60   1          Timer0_Stop();
+  61   1      }
+  62          
+  63          void Extern0_Init(void)
+  64          {
+  65   1          INT0 = 1;
+  66   1          IT0 = 1;                    //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  67   1          EX0 = 1;                    //  使能INT0中断
+  68   1      }
+  69          
+  70          
+  71          void system_start_or_not()
+  72          {
+  73   1          // 人工关闭(此时进入吸料结束)
+  74   1          if(!sigal_available){
+  75   2              if(!start_fan_signal)
+  76   2                  INT_PROC |= FEED_SUCTION_END_DUTY;
+  77   2              // 人工开启
+  78   2              else
+  79   2              {
+  80   3                  // 温度、过载没解除
+  81   3                  if(alert_for_system & 0x14)
+  82   3                  {
+  83   4                      start_fan_signal = 0;
+  84   4                      INT_PROC |= SYSTEM_END_DUTY;
+  85   4                  }
+  86   3                  else
+  87   3                      INT_PROC |= START_DUTY;
+  88   3              }
+  89   2          } else {
+  90   2              INT_PROC |= SYSTEM_END_DUTY;
+  91   2          }
+  92   1      
+  93   1      }
+  94          
+  95          void exint0_isr() interrupt 0 using 1 
+  96          {
+  97   1          if(!INT0)
+  98   1          {
+  99   2              start_fan_signal = ~start_fan_signal;
+ 100   2              system_start_or_not();
+ 101   2          }
+ 102   1      }
+ 103          
+ 104          void call_for_duty(u16 duty_code) {
+ 105   1        INT_PROC |= duty_code;
+ 106   1      }
+ 107          
+ 108          bool working_for_duty(u16 duty_code) {
+ 109   1          return INT_PROC & duty_code;
+ 110   1      }
+ 111          
+ 112          
+ 113          // work
+ 114          // count_down_t xdata fan_start_deceted;
+ 115          // count_down_t xdata feed_suction;
+ 116          // count_down_t xdata feed_discharge;
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 3   
+
+ 117          // count_down_t xdata feed_intercept;
+ 118          // count_down_t xdata spray_wash;
+ 119          // count_down_t xdata spray_wash_between;
+ 120          // count_down_t xdata spray_wash_stop;
+ 121          count_down_t xdata spray_wash;
+ 122          count_down_t xdata spray_wash_between;
+ 123          count_down_t xdata spray_wash_before_stop;
+ 124          count_down_t xdata spray_wash_between_before_stop;
+ 125          count_down_t xdata feed_intercept;
+ 126          
+ 127          
+ 128          // test
+ 129          count_down_t xdata test_spray_wash;
+ 130          count_down_t xdata test_suction;
+ 131          count_down_t xdata test_intercept;
+ 132          count_down_t xdata test_fan;
+ 133          count_down_t xdata test_beep;
+ 134          
+ 135          // system
+ 136          count_down_t xdata system_back_home;
+ 137          count_down_t xdata password_no_identified;
+ 138          
+ 139          
+ 140          void count_down_init(count_down_t xdata *cnt, event_cb func) {
+ 141   1          cnt -> second = 0;
+ 142   1          cnt -> millisecond = 0;
+ 143   1          cnt -> p_callback = func;
+ 144   1      }
+ 145          
+ 146          void count_down_reload(count_down_t xdata *cnt, const u8 second, const u8 millisecond) {
+ 147   1          if(!millisecond) {
+ 148   2              cnt -> second = second - 1;
+ 149   2              cnt -> millisecond = COUNTER_PER_SECOND;
+ 150   2          } else {
+ 151   2              cnt -> second = second;
+ 152   2              cnt -> millisecond = millisecond;
+ 153   2          }
+ 154   1      }
+ 155          
+ 156          
+ 157          bool count_down_at(count_down_t xdata *cnt) {
+ 158   1      if (!cnt -> second && !cnt -> millisecond)
+ 159   1              return FALSE;
+ 160   1          
+ 161   1          if (!--cnt -> millisecond)      // --ms == 0
+ 162   1          {
+ 163   2              if (!cnt -> second) {
+ 164   3                  if (cnt -> p_callback)
+ 165   3                      cnt -> p_callback();
+ 166   3                  return TRUE;
+ 167   3              } else {
+ 168   3                  --cnt -> second;
+ 169   3                  cnt -> millisecond = COUNTER_PER_SECOND;
+ 170   3              }
+ 171   2          }
+ 172   1      
+ 173   1          return FALSE;
+ 174   1      }
+ 175          
+ 176          void count_down_cancel(count_down_t xdata *cnt) {
+ 177   1          cnt -> second = 0;
+ 178   1          cnt -> millisecond = 0;
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 4   
+
+ 179   1          // cnt -> p_callback = NULL;
+ 180   1      }
+ 181          
+ 182          
+ 183          
+ 184          void count_down_all_task() {
+ 185   1        // count_down_at(&fan_start_deceted);
+ 186   1       //    count_down_at(&feed_discharge);
+ 187   1       //    count_down_at(&feed_suction);
+ 188   1       //    count_down_at(&feed_intercept);
+ 189   1       //    count_down_at(&spray_wash);
+ 190   1       //    count_down_at(&spray_wash_between);
+ 191   1       //    count_down_at(&spray_wash_stop);
+ 192   1          count_down_at(&spray_wash);
+ 193   1          count_down_at(&spray_wash_between);
+ 194   1          count_down_at(&spray_wash_before_stop);
+ 195   1          count_down_at(&spray_wash_between_before_stop);
+ 196   1          count_down_at(&feed_intercept);
+ 197   1      // test
+ 198   1          count_down_at(&test_spray_wash);
+ 199   1          count_down_at(&test_suction);
+ 200   1          count_down_at(&test_intercept);
+ 201   1          count_down_at(&test_fan);
+ 202   1          count_down_at(&test_beep);
+ 203   1      // system
+ 204   1          count_down_at(&system_back_home);
+ 205   1          count_down_at(&password_no_identified);
+ 206   1      }
+ 207          
+ 208          
+ 209          
+ 210          void count_down_cancle_all_task(){
+ 211   1          // count_down_cancel(&fan_start_deceted);
+ 212   1          // count_down_cancel(&feed_suction);
+ 213   1          // count_down_cancel(&feed_discharge);
+ 214   1          // count_down_cancel(&feed_intercept);
+ 215   1          // count_down_cancel(&spray_wash);
+ 216   1          // count_down_cancel(&spray_wash_between);
+ 217   1          // count_down_cancel(&spray_wash_stop);
+ 218   1          count_down_cancel(&spray_wash);
+ 219   1          count_down_cancel(&spray_wash_between);
+ 220   1          count_down_cancel(&spray_wash_before_stop);
+ 221   1          count_down_cancel(&spray_wash_between_before_stop);
+ 222   1          count_down_cancel(&feed_intercept);
+ 223   1      }
+ 224          
+ 225          
+ 226          void count_down_cancel_test()
+ 227          {
+ 228   1          count_down_cancel(&test_spray_wash);
+ 229   1          count_down_cancel(&test_suction);
+ 230   1          count_down_cancel(&test_intercept);
+ 231   1          count_down_cancel(&test_fan);
+ 232   1          count_down_cancel(&test_beep);
+ 233   1      }
+ 234          
+ 235          
+ 236          
+ 237          void spray_wash_callback()
+ 238          {
+ 239   1          //关
+ 240   1          printf("dengdai\r\n");
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 5   
+
+ 241   1          spray_wash_disable();
+ 242   1          reload_spray_wash_between();
+ 243   1      }
+ 244          
+ 245          void spray_wash_between_callback()
+ 246          {
+ 247   1          // 更新值
+ 248   1          if(update_data_should)
+ 249   1          {
+ 250   2              // 所有的值改变一下
+ 251   2              updata_data_from_dwscreen();
+ 252   2              update_data_should = false;
+ 253   2          }
+ 254   1          printf("spray_wash, PoW\r\n");
+ 255   1          spray_wash_enable();
+ 256   1          reload_spray_wash();
+ 257   1      }
+ 258          
+ 259          void spray_wash_before_stop_callback()
+ 260          {
+ 261   1          //关
+ 262   1          printf("dengdai\r\n");
+ 263   1          spray_wash_disable();
+ 264   1          counter_for_spray_wash_logic --;
+ 265   1          if(counter_for_spray_wash_logic)
+ 266   1              reload_spray_wash_between_before_stop();
+ 267   1          else
+ 268   1          {
+ 269   2              // valve_disable();
+ 270   2              spray_wash_disable();
+ 271   2              discharge_enable();
+ 272   2              // intercept_disable();
+ 273   2              fan_work_disable();
+ 274   2          }
+ 275   1      }
+ 276          
+ 277          void spray_wash_between_before_stop_callback()
+ 278          {
+ 279   1          printf("spray_wash, PoW\r\n");
+ 280   1          spray_wash_enable();
+ 281   1          reload_spray_wash_before_stop();
+ 282   1      }
+ 283          
+ 284          void feed_intercept_stop_callback()
+ 285          {
+ 286   1        printf("intercept_end\r\n");
+ 287   1          intercept_disable();
+ 288   1      }
+ 289          
+ 290          void detected_feed_full_start()
+ 291          {
+ 292   1          // 缺料
+ 293   1          if(!ALERT_FEED_LACK)
+ 294   1          {
+ 295   2              printf("FEED_SUCTION, PoW\r\n");
+ 296   2              system_enter_sunction();
+ 297   2      
+ 298   2              signal_feed_full_delay = NO;
+ 299   2              // 开启风机
+ 300   2              fan_work_enable();
+ 301   2      
+ 302   2              // 开启切换阀、卸料阀
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 6   
+
+ 303   2              suction_enable();
+ 304   2              intercept_enable();
+ 305   2              printf("intercept_start, PoW\r\n");
+ 306   2              // 料满时间记录清零
+ 307   2              time_feed_full = 0;
+ 308   2              // 开始反吹间隔
+ 309   2              spray_wash_callback();
+ 310   2              // // 开启反吹阀
+ 311   2              // spray_wash_between_callback();
+ 312   2              alert_for_system &= ~ALTER_FULL_FEED;
+ 313   2          }
+ 314   1          else
+ 315   1          {
+ 316   2              signal_feed_full_delay = YES;
+ 317   2              // regard as rise 
+ 318   2              signal_rise_fall = 1;
+ 319   2              system_enter_alter_feed_full();
+ 320   2              time_task_interval = 0;
+ 321   2              alert_for_system &= ~ALTER_LACK_FEED;
+ 322   2              alert_for_system |= ALTER_FULL_FEED;
+ 323   2          }
+ 324   1      }
+ 325          
+ 326          
+ 327          // 吸料时间到、进放料
+ 328          void feed_suction_callback()
+ 329          {
+ 330   1          printf("FEED_DISCHARGE\r\n");
+ 331   1          // 料满时间到 清除反吹、反吹间隔
+ 332   1          count_down_cancle_all_task();
+ 333   1          //放料
+ 334   1          discharge_enable();
+ 335   1          //放料动画
+ 336   1          // system_enter_discharge();
+ 337   1          // 截料停止倒计时
+ 338   1          reload_feed_intercept_stop();
+ 339   1          // 停机前阶段启动反吹阀
+ 340   1          counter_for_spray_wash_logic = counter_for_spray_wash_set + 1;
+ 341   1          // 开启反吹阀
+ 342   1          // spray_wash_between_before_stop_callback();
+ 343   1      
+ 344   1          spray_wash_before_stop_callback();
+ 345   1      }
+ 346          
+ 347          
+ 348          
+ 349          
+ 350          // test callback
+ 351          void test_spray_wash_callback()
+ 352          {
+ 353   1          test_reset_para(ADDR_TEST_SPRAY_WASH);
+ 354   1          spray_wash_disable();
+ 355   1      }
+ 356          
+ 357          void test_suction_callback()
+ 358          {
+ 359   1          test_reset_para(ADDR_TEST_SUCTION);
+ 360   1          discharge_enable();
+ 361   1      }
+ 362          
+ 363          void test_intercept_callback()
+ 364          {
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 7   
+
+ 365   1          test_reset_para(ADDR_TEST_INTERCEPT);
+ 366   1          intercept_disable();
+ 367   1      }
+ 368          
+ 369          void test_fan_callback()
+ 370          {
+ 371   1          test_reset_para(ADDR_TEST_FAN);
+ 372   1          fan_work_disable();
+ 373   1      }
+ 374          void test_beep_callback()
+ 375          {
+ 376   1          test_reset_para(ADDR_TEST_BEEP);
+ 377   1          alert_beep_disable();
+ 378   1      }
+ 379          
+ 380          void count_down_init_all_task()
+ 381          {
+ 382   1          // count_down_init(&fan_start_deceted, fan_start_deceted_callback);
+ 383   1          // count_down_init(&feed_suction, feed_suction_callback);
+ 384   1          // count_down_init(&feed_discharge, feed_discharge_callback);
+ 385   1          // count_down_init(&feed_intercept, feed_intercept_callback);
+ 386   1          count_down_init(&spray_wash, spray_wash_callback);
+ 387   1          count_down_init(&spray_wash_between, spray_wash_between_callback);
+ 388   1          count_down_init(&spray_wash_before_stop, spray_wash_before_stop_callback);
+ 389   1          count_down_init(&spray_wash_between_before_stop, spray_wash_between_before_stop_callback);
+ 390   1          count_down_init(&feed_intercept, feed_intercept_stop_callback);
+ 391   1          // count_down_init(&spray_wash_stop, spray_wash_stop_callback);
+ 392   1      
+ 393   1      // test init
+ 394   1          count_down_init(&test_spray_wash, test_spray_wash_callback);
+ 395   1          count_down_init(&test_suction, test_suction_callback);
+ 396   1          count_down_init(&test_intercept, test_intercept_callback);
+ 397   1          count_down_init(&test_fan, test_fan_callback);
+ 398   1          count_down_init(&test_beep, test_beep_callback);
+ 399   1      
+ 400   1      // system
+ 401   1          count_down_init(&system_back_home, every_minute_no_operate_call_back);
+ 402   1          count_down_init(&password_no_identified, every_minute_no_identify_call_back);
+ 403   1      }
+ 404          
+ 405          
+ 406          void valve_disable()
+ 407          {
+ 408   1          spray_wash_disable();
+ 409   1          discharge_enable();
+ 410   1          intercept_disable();
+ 411   1          fan_work_disable();
+ 412   1      }
+ 413          
+ 414          void valve_control_io_init()
+ 415          {
+ 416   1          push_pull(0, 0x0F);
+ 417   1          valve_disable();
+ 418   1      }
+ 419          
+ 420          
+ 421          void tm0_isr() interrupt TIMER0_VECTOR  using 1
+ 422          {   
+ 423   1          INT_PROC |= TICK_DUTY;
+ 424   1          //
+ 425   1          if (!--second_task_interval) {
+ 426   2              INT_PROC |= SECOND_DUTY;
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 8   
+
+ 427   2              second_task_interval = COUNTER_PER_SECOND;
+ 428   2          }
+ 429   1          if(lack_pre ^ ALERT_FEED_LACK)
+ 430   1          {
+ 431   2              // rise
+ 432   2              if(ALERT_FEED_LACK)
+ 433   2              {
+ 434   3                  time_not_exist = 0;
+ 435   3                  time_feed_full = 0;
+ 436   3                  signal_rise_fall = 1;
+ 437   3              }
+ 438   2              // fall
+ 439   2              else
+ 440   2              {
+ 441   3                   signal_rise_fall = 0;
+ 442   3                   // 料满停机时间置零
+ 443   3                   time_feed_full = 0;
+ 444   3                   // 料满停机结束
+ 445   3                  if(feed_status == full)
+ 446   3                  {
+ 447   4                      signal_feed_full_delay = YES;
+ 448   4                      time_task_interval = 0;
+ 449   4                      alert_for_system &= ~ALTER_FULL_FEED;
+ 450   4                  }
+ 451   3              }
+ 452   2          }
+ 453   1      
+ 454   1          if(signal_rise_fall)
+ 455   1          {
+ 456   2              if(feed_status == suction)
+ 457   2              {
+ 458   3                  time_feed_full ++;
+ 459   3                  if(time_feed_full == time_fan_delay_stop_set * COUNTER_PER_SECOND)
+ 460   3                  {
+ 461   4                      INT_PROC |= FEED_SUCTION_END_DUTY;
+ 462   4                      alert_for_system |= ALTER_FULL_FEED;
+ 463   4                  }
+ 464   3              }
+ 465   2        }
+ 466   1          else
+ 467   1          {
+ 468   2              // 只在人工启动时动作
+ 469   2              if(start_fan_signal == 1)
+ 470   2              {
+ 471   3                  // 缺料延迟启动
+ 472   3                  if(signal_feed_full_delay)
+ 473   3                  {
+ 474   4                      time_task_interval ++;
+ 475   4                      if(time_task_interval >= time_fan_delay_full_set * COUNTER_PER_SECOND)
+ 476   4                      {
+ 477   5                          // 料满报警解除
+ 478   5                          alert_for_system &= ~ALTER_FULL_FEED;
+ 479   5                          time_task_interval = 0;
+ 480   5                          signal_feed_full_delay = NO;
+ 481   5                          count_down_cancle_all_task();
+ 482   5                          system_start_or_not();
+ 483   5                      }                 
+ 484   4                  }
+ 485   3              }
+ 486   2          }
+ 487   1          lack_pre = ALERT_FEED_LACK;
+ 488   1      }
+C51 COMPILER V9.52.0.0   TASK                                                              11/08/2016 20:38:39 PAGE 9   
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1229    ----
+   CONSTANT SIZE    =    104    ----
+   XDATA SIZE       =     66       4
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      5    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

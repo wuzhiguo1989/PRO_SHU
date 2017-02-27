@@ -1,0 +1,159 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              10/08/2016 19:44:14 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          *   STC-ISP导入芯片信息至Keil
+   3          *   采用STC15W4K32S4系列
+   4          *   假定测试芯片的工作频率为24.000MHz
+   5          */
+   6          
+   7          #include "config.h"
+   8          #include "utils.h"
+   9          #include "sync.h"
+  10          #include "task.h"
+  11          #include "key.h"
+  12          #include "display.h"
+  13          #include "string.h"
+  14          #include "power.h"
+  15          #include "LM567.h"
+  16          #include "utils.h"
+  17          #include "usart.h"
+  18          #include "led.h"
+  19          
+  20          static void init_system_component();
+  21          static void init_logic_params();
+  22          
+  23          
+  24          
+  25          void instant_effective_init() {
+  26   1          init_system_component();
+  27   1          init_logic_params();
+  28   1      
+  29   1      }
+  30          
+  31          
+  32          void main()
+  33          {  
+  34   1          // stop catching interrupt
+  35   1          EA = 0;
+  36   1      
+  37   1          instant_effective_init();
+  38   1          count_down_init_all_task();
+  39   1      
+  40   1          // power_select_level();
+  41   1          // begin catching interrupt
+  42   1      
+  43   1          EA = 1;
+  44   1              
+  45   1      
+  46   1          while(1) {
+  47   2              // Feed dog
+  48   2              reset_watch_dog();
+  49   2      
+  50   2              if(INT_PROC & KEY_DUTY)
+  51   2              {
+  52   3                  key_duty_task();
+  53   3                  decrease_key_hold_interval();
+  54   3                  count_down_at_all_task();
+  55   3                  // power_select_level();
+C51 COMPILER V9.52.0.0   MAIN                                                              10/08/2016 19:44:14 PAGE 2   
+
+  56   3                  INT_PROC &= ~KEY_DUTY;
+  57   3                  continue;
+  58   3              }
+  59   2      
+  60   2              if(INT_PROC & UART_DUTY) 
+  61   2              { 
+  62   3                  uart_process_recieved(); 
+  63   3                  INT_PROC &= ~UART_DUTY;              
+  64   3                  continue; 
+  65   3              } 
+  66   2      
+  67   2      
+  68   2              // 5ms检测一次
+  69   2              if(INT_PROC & TICK_DUTY)
+  70   2              {
+  71   3                  if (USART_RX_Block(&COM1))  
+  72   3                      INT_PROC |= UART_DUTY; 
+  73   3                  cycle_based_control();
+  74   3                  led_display_task();
+  75   3                  INT_PROC &= ~TICK_DUTY;
+  76   3                  continue;            
+  77   3              }
+  78   2      
+  79   2              if(INT_PROC & SLEEP_DUTY){
+  80   3                  // 倒计时
+  81   3                  // 关灯、关香薰
+  82   3                  power_status = OFF;
+  83   3                  power_select_level();
+  84   3                  ctrl_mode_changed(0);
+  85   3                  INT_PROC &= ~SLEEP_DUTY;
+  86   3                  EX0 = ENABLE;
+  87   3                  continue; 
+  88   3              }
+  89   2      
+  90   2              if(INT_PROC & PROTECT_DUTY){
+  91   3                  power_level_set = 0;
+  92   3                  power_select_level();
+  93   3                  INT_PROC &= ~PROTECT_DUTY;
+  94   3                  continue; 
+  95   3              }
+  96   2      
+  97   2          }
+  98   1      }
+  99          
+ 100          
+ 101          static void init_system_component() {  
+ 102   1          // timer
+ 103   1          init_system_tick();
+ 104   1          // Timer1Init();
+ 105   1          //KEY
+ 106   1          key_io_init();
+ 107   1          power_config_init();
+ 108   1      
+ 109   1          //pwm
+ 110   1          PWM_Init();
+ 111   1        PWM_Pin_Init();
+ 112   1          LED_OUT = 0;
+ 113   1      
+ 114   1          // // INT0
+ 115   1          power_overload_protect();
+ 116   1          init_adc();
+ 117   1          BLE_Init();
+C51 COMPILER V9.52.0.0   MAIN                                                              10/08/2016 19:44:14 PAGE 3   
+
+ 118   1        
+ 119   1      }
+ 120          
+ 121          
+ 122          static void init_logic_params() {
+ 123   1          init_sync_object();
+ 124   1          display_startup_init();
+ 125   1      }
+ 126          
+ 127          
+ 128          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    189    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

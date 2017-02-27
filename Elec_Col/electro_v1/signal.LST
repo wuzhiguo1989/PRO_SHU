@@ -1,0 +1,391 @@
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/03/2016 19:04:49 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SIGNAL
+OBJECT MODULE PLACED IN signal.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE signal.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          #include "signal.h"
+   2          #include "task.h"
+   3          #include "share.h"
+   4          #include "beep.h"
+   5          #include "sync.h"
+   6          #include "light.h"
+   7          #include "time.h"
+   8          #include "jl17467pqw.h"
+   9          #include "control.h"
+  10          
+  11          
+  12          static u8 remote_signal = 0;
+  13          
+  14          void key_on_scan()
+  15          {
+  16   1        if(!KEY_ON && state_current == KEY_NORMAL_STATE)
+  17   1        {
+  18   2          Store_mileage();
+  19   2          display_clean();
+  20   2          INT_CLKO &= 0xEF;
+  21   2          enter_lock_state_2s = YES;
+  22   2          state_current = LOCK_STATE;
+  23   2          reset_2s_counter_for_key();
+  24   2          first_alert = 0;
+  25   2            BACK = 0;
+  26   2            RELAY = 0;
+  27   2            speak_mode_set &= ~0x0fff; //关闭所有声音
+  28   2        }
+  29   1      }
+  30          
+  31          void init_control_signal()
+  32          {
+  33   1          INT1 = 1;
+  34   1          IT1 = 0;                    //设置INT1的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  35   1          EX1 = 1;                    //使能INT1中断
+  36   1      }
+  37          
+  38          
+  39          static void init_speak_param()
+  40          {
+  41   1        interval = 0;
+  42   1        speak_time = speak_time_interval[speak_mode - 1];
+  43   1        mute_beep_enable();
+  44   1        light_follow_speak();
+  45   1      }
+  46          
+  47          void  wait_for_alert() 
+  48          {
+  49   1          INT_CLKO &= 0xEF;
+  50   1          enter_lock_state_2s = YES;
+  51   1          reset_2s_counter();
+  52   1      }
+  53          
+  54          
+  55          void state_enter_trans(u8 control_signal)
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/03/2016 19:04:49 PAGE 2   
+
+  56          {
+  57   1        u8 state_current_pre = state_current;
+  58   1        if(state_current_pre == LOCK_STATE)
+  59   1        {
+  60   2      
+  61   2          // 正常键：进入正常状态
+  62   2          if(control_signal == NORMAL_SIGNAL)
+  63   2          {
+  64   3            speak_mode_set &= ~0x003f;
+  65   3            time_init();
+  66   3            reset_time_counter();
+  67   3            reset_speed_counter();
+  68   3            mileage_init();
+  69   3            BACK = 0;
+  70   3            // state_current = NORMAL_STATE;
+  71   3            // 解锁的铃声
+  72   3            speak_mode_set |= 0x0001;
+  73   3            speak_mode = unlockmode;
+  74   3            init_speak_param();
+  75   3          }
+  76   2          // 震动信号：震动报警
+  77   2          if(control_signal == SHOCK_SIGNAL)
+  78   2          {
+  79   3            speak_mode_set &= ~0x003f;
+  80   3            state_current = ALERT_STATE;
+  81   3            // 第一次震动 预报警4s
+  82   3            if(!first_alert)
+  83   3            {
+  84   4              enter_lock_state_15s = NO;
+  85   4              reset_10s_counter();
+  86   4              speak_mode_set |= 0x0008;
+  87   4              speak_mode = firstalertmode;
+  88   4            }
+  89   3            // 10s以后震动 报警15s
+  90   3            else
+  91   3            {
+  92   4              enter_lock_state_15s = NO;
+  93   4              reset_10s_counter();
+  94   4              speak_mode_set |= 0x0010;
+  95   4              speak_mode = secondalertmode;
+  96   4            }
+  97   3            init_speak_param();
+  98   3          }
+  99   2          // 寻车键：提示车
+ 100   2          if(control_signal == LOOK_FOR_SINAL)
+ 101   2          {
+ 102   3            speak_mode_set &= ~0x003f;
+ 103   3            state_current = LOCK_STATE;
+ 104   3            speak_mode_set |= 0x0002;
+ 105   3            speak_mode = lookformode;
+ 106   3            init_speak_param();
+ 107   3      //      wait_for_alert();
+ 108   3          }
+ 109   2          // 锁定键：锁定
+ 110   2          if(control_signal == LOCK_SIGNAL)
+ 111   2          {
+ 112   3            speak_mode_set &= ~0x003f;
+ 113   3            state_current = LOCK_STATE;
+ 114   3            first_alert = 0;
+ 115   3              BACK = 0;
+ 116   3            speak_mode_set |= 0x0004;
+ 117   3            speak_mode = firstalertmode;
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/03/2016 19:04:49 PAGE 3   
+
+ 118   3            init_speak_param();
+ 119   3      //      wait_for_alert();
+ 120   3          }
+ 121   2          // 解锁键：解锁
+ 122   2          if(control_signal == UNLOCK_SIGNAL)
+ 123   2          {
+ 124   3            speak_mode_set &= ~0x003f;
+ 125   3            state_current = UN_LOCK_STATE;
+ 126   3            speak_mode_set |= 0x0020;
+ 127   3            speak_mode = buzzer;
+ 128   3            init_speak_param();
+ 129   3          }
+ 130   2          if(control_signal == KEY_SIGNAL)
+ 131   2          {
+ 132   3            time_init();
+ 133   3            reset_time_counter();
+ 134   3            reset_speed_counter();
+ 135   3            mileage_init();
+ 136   3            BACK = 1;
+ 137   3            RELAY = 1;
+ 138   3            state_current = KEY_NORMAL_STATE;
+ 139   3          }
+ 140   2        } 
+ 141   1        else if(state_current_pre == UN_LOCK_STATE){
+ 142   2          // 正常键：进入正常状态
+ 143   2          if(control_signal == NORMAL_SIGNAL)
+ 144   2          {
+ 145   3            speak_mode_set &= ~0x003f;
+ 146   3            time_init();
+ 147   3            reset_time_counter();
+ 148   3            reset_speed_counter();
+ 149   3            mileage_init();
+ 150   3            BACK = 0;
+ 151   3            // state_current = NORMAL_STATE;
+ 152   3            // 解锁的铃声
+ 153   3            speak_mode_set |= 0x0001;
+ 154   3            speak_mode = unlockmode;
+ 155   3            init_speak_param();
+ 156   3          }
+ 157   2          // 震动信号
+ 158   2          if(control_signal == SHOCK_SIGNAL)
+ 159   2          {
+ 160   3            // 无反应
+ 161   3            RELAY = 0;
+ 162   3      
+ 163   3          }
+ 164   2          // 寻车键
+ 165   2          if(control_signal == LOOK_FOR_SINAL)
+ 166   2          {
+ 167   3            speak_mode_set &= ~0x003f;
+ 168   3          //  state_current = UN_LOCK_STATE;
+ 169   3            // 寻车的铃声
+ 170   3            speak_mode_set |= 0x0002;
+ 171   3            speak_mode = lookformode;
+ 172   3            init_speak_param();
+ 173   3            // wait_for_alert();
+ 174   3          }
+ 175   2          // 设定键
+ 176   2          if(control_signal == LOCK_SIGNAL)
+ 177   2          {
+ 178   3            speak_mode_set &= ~0x003f;
+ 179   3            state_current = LOCK_STATE;
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/03/2016 19:04:49 PAGE 4   
+
+ 180   3            first_alert = 0;
+ 181   3              BACK = 0;
+ 182   3            speak_mode_set |= 0x0004;
+ 183   3            speak_mode = firstalertmode;
+ 184   3            init_speak_param();
+ 185   3      
+ 186   3          }
+ 187   2          // 解锁键
+ 188   2          if(control_signal == UNLOCK_SIGNAL)
+ 189   2          {
+ 190   3            speak_mode_set &= ~0x003f;
+ 191   3            state_current = UN_LOCK_STATE;
+ 192   3            speak_mode_set |= 0x0020;
+ 193   3            speak_mode = buzzer;
+ 194   3            init_speak_param();
+ 195   3          }
+ 196   2      
+ 197   2          if(control_signal == KEY_SIGNAL)
+ 198   2          {
+ 199   3            time_init();
+ 200   3            reset_time_counter();
+ 201   3            reset_speed_counter();
+ 202   3            mileage_init();
+ 203   3            BACK = 1;
+ 204   3            RELAY = 1;
+ 205   3            state_current = KEY_NORMAL_STATE;
+ 206   3          }
+ 207   2      
+ 208   2        }
+ 209   1      
+ 210   1        else if(state_current_pre == ALERT_STATE){
+ 211   2          // 正常键：取消报警
+ 212   2          if(control_signal == NORMAL_SIGNAL)
+ 213   2          {
+ 214   3            //关闭喇叭
+ 215   3            RELAY = 0;
+ 216   3            R_LIHGT = 0;
+ 217   3            L_LIHGT = 0;
+ 218   3            speak_mode_set &= ~0x003f;
+ 219   3            state_current = LOCK_STATE;
+ 220   3            enter_lock_state_15s = NO;
+ 221   3                  reset_10s_counter();
+ 222   3                first_alert = 0;
+ 223   3            wait_for_alert();
+ 224   3          }
+ 225   2          // 震动信号
+ 226   2          if(control_signal == SHOCK_SIGNAL)
+ 227   2          {
+ 228   3          }
+ 229   2          // 寻车键
+ 230   2          if(control_signal == LOOK_FOR_SINAL)
+ 231   2          {
+ 232   3            speak_mode_set &= ~0x003f;
+ 233   3            // state_current = UN_LOCK_STATE;
+ 234   3            // 寻车的铃声
+ 235   3            speak_mode_set |= 0x0002;
+ 236   3            speak_mode = lookformode;
+ 237   3            init_speak_param();
+ 238   3            // wait_for_alert();
+ 239   3          }
+ 240   2          // 设定键
+ 241   2          if(control_signal == LOCK_SIGNAL)
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/03/2016 19:04:49 PAGE 5   
+
+ 242   2          {
+ 243   3            speak_mode_set &= ~0x003f;
+ 244   3      //      wait_for_alert();
+ 245   3            state_current = LOCK_STATE;
+ 246   3            first_alert = 0;
+ 247   3              BACK = 0;
+ 248   3            speak_mode_set |= 0x0004;
+ 249   3            speak_mode = firstalertmode;
+ 250   3            init_speak_param();
+ 251   3          }
+ 252   2      
+ 253   2          // 解锁键：不响应
+ 254   2          if(control_signal == UNLOCK_SIGNAL)
+ 255   2          {
+ 256   3            speak_mode_set &= ~0x003f;
+ 257   3            state_current = UN_LOCK_STATE;
+ 258   3            speak_mode_set |= 0x0020;
+ 259   3            speak_mode = buzzer;
+ 260   3            init_speak_param();
+ 261   3          }
+ 262   2      
+ 263   2          if(control_signal == KEY_SIGNAL)
+ 264   2          {
+ 265   3            speak_mode_set &= ~0x003f;
+ 266   3            time_init();
+ 267   3            reset_time_counter();
+ 268   3            reset_speed_counter();
+ 269   3            mileage_init();
+ 270   3            BACK = 1;
+ 271   3            RELAY = 1;
+ 272   3            state_current = KEY_NORMAL_STATE;
+ 273   3          }
+ 274   2        }
+ 275   1      
+ 276   1        else if (state_current_pre == NORMAL_STATE){
+ 277   2          // 解锁键
+ 278   2          if(control_signal == NORMAL_SIGNAL)
+ 279   2          { 
+ 280   3      
+ 281   3          }
+ 282   2          // 震动信号
+ 283   2          if(control_signal == SHOCK_SIGNAL)
+ 284   2          {
+ 285   3            //无反应
+ 286   3          }
+ 287   2          // 寻车键
+ 288   2          if(control_signal == LOOK_FOR_SINAL)
+ 289   2          {
+ 290   3            speak_mode_set &= ~0x003f;
+ 291   3            speak_mode_set |= 0x0002;
+ 292   3            speak_mode = lookformode;
+ 293   3            init_speak_param();
+ 294   3            // wait_for_alert();
+ 295   3          }
+ 296   2          // 设定键
+ 297   2          if(control_signal == LOCK_SIGNAL && !speed_counter)
+ 298   2          {
+ 299   3            Store_mileage();
+ 300   3            speak_mode_set &= ~0x0fff; //关闭所有声音
+ 301   3            state_current = LOCK_STATE;
+ 302   3            first_alert = 0;
+ 303   3              BACK = 0;
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/03/2016 19:04:49 PAGE 6   
+
+ 304   3            speak_mode_set |= 0x0004;
+ 305   3            speak_mode = firstalertmode;
+ 306   3            init_speak_param();
+ 307   3            wait_for_alert();
+ 308   3          }
+ 309   2      
+ 310   2          // 不响应解锁键
+ 311   2          if(control_signal == UNLOCK_SIGNAL)
+ 312   2          {
+ 313   3            // speak_mode_set &= ~0x003f;
+ 314   3            // state_current = UN_LOCK_STATE;
+ 315   3            // speak_mode_set |= 0x0001;
+ 316   3            // speak_mode = unlockmode;
+ 317   3            // init_speak_param();
+ 318   3          }
+ 319   2      
+ 320   2          if(control_signal == KEY_SIGNAL)
+ 321   2            state_current = KEY_NORMAL_STATE;
+ 322   2        }
+ 323   1      }
+ 324          
+ 325          
+ 326          void read_control_signal()
+ 327          {
+ 328   1        remote_signal = 0;
+ 329   1        remote_signal |= SIGNAL_D3;
+ 330   1        remote_signal <<= 1;
+ 331   1        remote_signal |= SIGNAL_D2;
+ 332   1        remote_signal <<= 1;
+ 333   1        remote_signal |= SIGNAL_D1;
+ 334   1        remote_signal <<= 1;
+ 335   1        remote_signal |= SIGNAL_D0;
+ 336   1      }
+ 337          
+ 338          // 信号处理
+ 339          void handle_control_signal()
+ 340          {
+ 341   1        state_enter_trans(remote_signal);
+ 342   1      }
+ 343          
+ 344          
+ 345          
+ 346          
+ 347          //控制信号中断(上升沿中断)
+ 348          //中断1
+ 349          void exint1() interrupt 2       //INT1中断入口
+ 350          {
+ 351   1          if(INT1)
+ 352   1          {
+ 353   2            read_control_signal();
+ 354   2          INT_PROC |= SIGNAL_RECEIVE_DUTY;
+ 355   2          } 
+ 356   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    570    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1       2
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.52.0.0   SIGNAL                                                            03/03/2016 19:04:49 PAGE 7   
+
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

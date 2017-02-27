@@ -1,0 +1,171 @@
+C51 COMPILER V9.52.0.0   PWM                                                               10/08/2016 19:44:15 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE PWM
+OBJECT MODULE PLACED IN pwm.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE pwm.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include    "PWM.h"
+   2          #include    "utils.h"
+   3          
+   4          
+   5          static code u16 const PWMxT1_ADDR[6] = {0xff00, 0xff10, 0xff20, 0xff30, 0xff40, 0xff50};
+   6          static code u16 const PWMxT2_ADDR[6] = {0xff02, 0xff12, 0xff22, 0xff32, 0xff42, 0xff52};
+   7          static code u16 const PWMxCR_ADDR[6] = {0xff04, 0xff14, 0xff24, 0xff34, 0xff44, 0xff54};
+   8          
+   9          // in-chip
+  10          #define PWMx_Init_Level(PWM_id, level)      PWMCFG &= ~(1 << PWM_id), PWMCFG |= (level) << PWM_id
+  11          
+  12          static void PWMx_Set_Edge(const u8 PWM_id, const u16 FirstEdge, const u16 SecondEdge) {
+  13   1          EAXSFR();       
+  14   1      
+  15   1          (*(unsigned int volatile xdata *)PWMxT1_ADDR[PWM_id]) = FirstEdge;
+  16   1          (*(unsigned int volatile xdata *)PWMxT2_ADDR[PWM_id]) = SecondEdge;     
+  17   1      
+  18   1          EAXRAM();       
+  19   1      }
+  20          
+  21          static void PWMx_GPIO_Set(const u8 PWM_id, const bool gpio_output) {
+  22   1          if (PWM_id == PWM3_ID) {
+  23   2              PWM3 = gpio_output;
+  24   2          } else if (PWM_id == PWM5_ID) {
+  25   2              PWM5 = gpio_output;
+  26   2          } else if (PWM_id == PWM7_ID) {
+  27   2              PWM7 = gpio_output;
+  28   2          }
+  29   1      }
+  30          
+  31          void PWM_SourceClk_Duty(const u8 PWM_SourceClk, const u16 PWM_Cycle) {
+  32   1          EAXSFR();
+  33   1      
+  34   1          (*(unsigned char volatile xdata *)PWMCKS) = PWM_SourceClk;  
+  35   1          (*(unsigned int volatile xdata *)PWMC) = PWM_Cycle;
+  36   1      
+  37   1          EAXRAM();                       
+  38   1      }
+  39          
+  40          void PWMx_Configuration(const u8 PWM_id, const PWMx_InitDefine xdata *PWMx) {
+  41   1          EAXSFR();       //访问XFR
+  42   1      
+  43   1          PWMx_Set_Edge(PWM_id, PWMx->FirstEdge, PWMx->SecondEdge);
+  44   1      
+  45   1          (*(unsigned char volatile xdata *)PWMxCR_ADDR[PWM_id])
+  46   1           = (PWMx->PWMx_IO_Select & 0x08)                    // PWM输出IO选择
+  47   1              | ((PWMx->PWMx_Interrupt << 2) & 0x04)          // 中断允许
+  48   1              | ((PWMx->SecondEdge_Interrupt << 1) & 0x02)    // 第二个翻转中断允许
+  49   1              | (PWMx->FirstEdge_Interrupt & 0x01);           // 第一个翻转中断允许
+  50   1      
+  51   1          EAXRAM();       //恢复访问XRAM
+  52   1      
+  53   1          // // // in-chip
+  54   1          // PWMx_As_GPIO(PWM_id);
+  55   1          // in-chip
+C51 COMPILER V9.52.0.0   PWM                                                               10/08/2016 19:44:15 PAGE 2   
+
+  56   1          PWMx_Init_Level(PWM_id, (PWMx->Start_IO_Level & 0x01));
+  57   1      }
+  58          
+  59          
+  60          // set width of high / low in one cycle
+  61          void PWMx_Setup_Wide(const u8 PWM_id, const u16 width, const bool high) {
+  62   1      
+  63   1          if (!width) {
+  64   2              PWMx_As_GPIO(PWM_id);
+  65   2              PWMx_GPIO_Set(PWM_id, !high);
+  66   2          } else if (width == PWM_FIXED_CYCLE) {
+  67   2              PWMx_As_GPIO(PWM_id);
+  68   2              PWMx_GPIO_Set(PWM_id, high);
+  69   2          } else {
+  70   2              PWMx_As_PWM(PWM_id);
+  71   2              if (high)
+  72   2                  PWMx_Set_Edge(PWM_id, 0, width);
+  73   2              else
+  74   2                  PWMx_Set_Edge(PWM_id, width, 0);     
+  75   2          }
+  76   1      
+  77   1      }
+  78          
+  79          // duty_cycle (percentage)
+  80          void PWMx_Setup_DutyCycle(const u8 PWM_id, const u8 duty_cycle) {
+  81   1          PWMx_Setup_DutyCycle_Based(PWM_id, duty_cycle, 100);
+  82   1      }
+  83          
+  84          // factor * ( TOTAL_CYCLE / base )
+  85          void PWMx_Setup_DutyCycle_Based(const u8 PWM_id, const u16 factor, const u16 base) {
+  86   1          u16 pwm_t2 = factor;
+  87   1      
+  88   1          if (!factor || factor == base) {
+  89   2              PWMx_As_GPIO(PWM_id);
+  90   2              PWMx_GPIO_Set(PWM_id, factor);
+  91   2      
+  92   2          } else {
+  93   2              pwm_t2 *= (PWM_FIXED_CYCLE / base) ;
+  94   2              PWMx_As_PWM(PWM_id);
+  95   2              PWMx_Set_Edge(PWM_id, 0, pwm_t2);
+  96   2          }
+  97   1      }
+  98          
+  99          
+ 100          void PWM_Init()
+ 101          {
+ 102   1          PWMx_InitDefine xdata PWMx_InitStructure;                             
+ 103   1          //风扇
+ 104   1          PWMx_InitStructure.PWMx_IO_Select   = PWM3_P21;    
+ 105   1          PWMx_InitStructure.Start_IO_Level       =   LOW;            
+ 106   1          PWMx_InitStructure.PWMx_Interrupt       = DISABLE;      
+ 107   1          PWMx_InitStructure.FirstEdge            = 1;
+ 108   1          PWMx_InitStructure.SecondEdge           = 0;
+ 109   1          PWMx_InitStructure.FirstEdge_Interrupt  = DISABLE;      
+ 110   1          PWMx_InitStructure.SecondEdge_Interrupt = DISABLE;              
+ 111   1          PWMx_Configuration(PWM3_ID, &PWMx_InitStructure);
+ 112   1                                                 
+ 113   1          //香薰 IN 
+ 114   1          PWMx_InitStructure.PWMx_IO_Select   = PWM7_P17;     
+ 115   1          PWMx_Configuration(PWM7_ID, &PWMx_InitStructure); 
+ 116   1      
+ 117   1          // CLK source                                     
+C51 COMPILER V9.52.0.0   PWM                                                               10/08/2016 19:44:15 PAGE 3   
+
+ 118   1          PWM_SourceClk_Duty(PWMCLOCK, PWM_FIXED_CYCLE);  
+ 119   1          
+ 120   1          // IO config
+ 121   1      
+ 122   1          push_pull(PWM_LED_Mx, PWM_LED_BIT);
+ 123   1          push_pull(PWM_CTL_Mx, PWM_CTL_BIT);
+ 124   1          push_pull(PWM_FENG_Mx, PWM_FENG_BIT);
+ 125   1      
+ 126   1      
+ 127   1          PWMCR |= ENPWM; 
+ 128   1      
+ 129   1          // // DISABLE INT
+ 130   1          PWMCR &= ~ECBI;     
+ 131   1          // PWMCR |=  ECBI;     
+ 132   1          // PWMFDCR = ENFD | FLTFLIO | FDIO;    
+ 133   1      }
+ 134          
+ 135          
+ 136          void PWM_Pin_Init() {
+ 137   1          // PWMx_Setup_DutyCycle(PWM_LED, 80);
+ 138   1          PWMx_Setup_DutyCycle(PWM_CTL, 0);
+ 139   1        PWMx_Setup_DutyCycle(PWM_FENG, 0);
+ 140   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    700    ----
+   CONSTANT SIZE    =     36    ----
+   XDATA SIZE       =   ----      18
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       2
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

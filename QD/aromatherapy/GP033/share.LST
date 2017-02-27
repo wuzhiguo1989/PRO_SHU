@@ -1,0 +1,35 @@
+C51 COMPILER V9.52.0.0   SHARE                                                             02/28/2016 17:53:50 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SHARE
+OBJECT MODULE PLACED IN share.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE share.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "share.h"
+   2          #include "utils.h"
+   3          volatile bool  candidate_time_out_signal_recieving = NO;
+   4          volatile bool  candidate_driver_signal_recieving = NO;
+   5          volatile u8 key_cabinet_number = 1; 
+   6          volatile u8 performance_status = 0;
+   7          volatile u8 order_for_badkey[30];
+   8          volatile u8 number_for_badkey = 0;
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   ----    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     33    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      2    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

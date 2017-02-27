@@ -1,0 +1,339 @@
+C51 COMPILER V9.52.0.0   EM08                                                              04/07/2016 08:22:24 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE EM08
+OBJECT MODULE PLACED IN .\list\em08.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE em08.c OMF2 BROWSE DEBUG PRINT(.\list\em08.lst) TABS(2) OBJECT(.\list\em08.
+                    -obj)
+
+line level    source
+
+   1          #include "em08.h"
+   2          #include "task.h"
+   3          #include <stdio.h>
+   4          #include <string.h>
+   5          
+   6          workflow_t xdata em08_modbus_read;
+   7          #define EM08_MODBUS_READ_WORKFLOW_STEP    1
+   8          
+   9          #define RESP_BUF_SIZE 32
+  10          static char xdata cached_response[RESP_BUF_SIZE];
+  11          char xdata *em08_cached_response = cached_response;
+  12          static u8 last_modbus_read;
+  13          
+  14          
+  15          float volatile xdata numeric_reading[EM08_TOTAL_READING];
+  16          static u8 xdata reading_updated[EM08_TOTAL_READING] = {0};
+  17          
+  18          static code modbus_address[EM08_TOTAL_READING] = {
+  19            // <s1> start_address: 0x0bd5, len: 14
+  20            0x0bd5,   
+  21            0x0bd7,
+  22            0x0bd9,
+  23            0x0bdb,
+  24            0x0bdd,
+  25            0x0bdf,
+  26            0x0be1,
+  27            // <s2> start_address: 0x0bf3, len: 6
+  28            0x0bf3,
+  29            0x0bf5,
+  30            0x0bf7
+  31          };
+  32          
+  33          #define EM08_S1_QUANTITY    14
+  34          #define EM08_S2_QUANTITY    6
+  35          #define EM08_SINGLE_QUANTITY  2
+  36          
+  37          static float parse_float(unsigned char *buffer, int offset) {
+  38   1         
+  39   1        float val=0;
+  40   1        
+  41   1        unsigned long result=0;
+  42   1        result |= ((unsigned long)(buffer[offset]) << 0x18);
+  43   1        result |= ((unsigned long)(buffer[offset+1]) << 0x10);
+  44   1        result |= ((unsigned long)(buffer[offset+2]) << 0x08);
+  45   1        result |= ((unsigned long)(buffer[offset+3]));
+  46   1        memcpy(&val,&result,4);
+  47   1         
+  48   1        return val;
+  49   1      }
+  50          
+  51          // Compute the MODBUS RTU CRC
+  52          static u16 modbus_rtu_crc(u8 *buf, int len)
+  53          {
+  54   1        u16 crc = 0xFFFF;
+C51 COMPILER V9.52.0.0   EM08                                                              04/07/2016 08:22:24 PAGE 2   
+
+  55   1        int pos;
+  56   1          for (pos = 0; pos < len; pos++) {
+  57   2            int i;
+  58   2            crc ^= (u16)buf[pos];             // XOR byte into least sig. byte of crc
+  59   2         
+  60   2            for (i = 8; i != 0; i--) {        // Loop over each bit
+  61   3            if ((crc & 0x0001) != 0) {      // If the LSB is set
+  62   4              crc >>= 1;                  // Shift right and XOR 0xA001
+  63   4              crc ^= 0xA001;
+  64   4            }
+  65   3            else                            // Else LSB is not set
+  66   3              crc >>= 1;                  // Just shift right
+  67   3            }
+  68   2        }
+  69   1        // Note, this number has low and high bytes swapped, so use it accordingly (or swap bytes)
+  70   1        return crc;  
+  71   1      }
+  72          
+  73          #define MODBUS_RTU_REQUEST_SIZE   8
+  74          static u8 xdata modbus_rtu_request[MODBUS_RTU_REQUEST_SIZE];
+  75          static void modbus_rtu_send(u8 *dat, u8 len) {
+  76   1        u8 i;
+  77   1        for (i=0; i< len; ++i)  {
+  78   2          TX_write2buff(COM[EM08_UART_ID], dat[i]);
+  79   2        }
+  80   1      
+  81   1        printf("%bu[T]:", EM08_UART_ID + 1);
+  82   1          for (i = 0 ; i< len; ++i )
+  83   1              printf("%02bx ", dat[i]);
+  84   1      
+  85   1          printf("\r\n");
+  86   1      }
+  87          
+  88          static void em08_modbus_read_range(u16 starting_address, u16 quantity) {
+  89   1        u16 crc;
+  90   1        u8 len = 0;
+  91   1        memset(modbus_rtu_request, 0, MODBUS_RTU_REQUEST_SIZE);
+  92   1        modbus_rtu_request[len++] = EM08_ADDITIONAL_ADDRESS;
+  93   1        modbus_rtu_request[len++] = EM08_FUNC_CODE_READ_HOLDING_REG;
+  94   1        modbus_rtu_request[len++] = (u8)(starting_address >> 8);
+  95   1        modbus_rtu_request[len++] = (u8)(starting_address & 0x00ff);
+  96   1        modbus_rtu_request[len++] = (u8)(quantity >> 8);
+  97   1        modbus_rtu_request[len++] = (u8)(quantity & 0x00ff);
+  98   1        crc = modbus_rtu_crc(modbus_rtu_request, len);
+  99   1        modbus_rtu_request[len++] = (u8)(crc & 0x00ff);
+ 100   1        modbus_rtu_request[len++] = (u8)(crc >> 8);
+ 101   1        modbus_rtu_send(modbus_rtu_request, len);
+ 102   1      }
+ 103          
+ 104          int em08_modbus_read_response_len(int quantity) {
+ 105   1        int len = 0;
+ 106   1        ++len;          // EM08_ADDITIONAL_ADDRESS
+ 107   1        ++len;          // EM08_FUNC_CODE_READ_HOLDING_REG
+ 108   1        ++len;          // Actual reading count 
+ 109   1        len += quantity << 1; // Each holding register is 16bit
+ 110   1        len += 2;       // CRC
+ 111   1        return len;
+ 112   1      }
+ 113          
+ 114          void em08_modbus_read_s1() {
+ 115   1        em08_modbus_read_range(modbus_address[0], EM08_S1_QUANTITY);
+ 116   1      }
+C51 COMPILER V9.52.0.0   EM08                                                              04/07/2016 08:22:24 PAGE 3   
+
+ 117          
+ 118          void em08_modbus_read_s2() {
+ 119   1        em08_modbus_read_range(modbus_address[7], EM08_S2_QUANTITY);
+ 120   1      }
+ 121          
+ 122          void em08_modbus_parse_s1_reading(u8 *response, int len) {
+ 123   1        u16 crc; int idx;
+ 124   1        if (len != em08_modbus_read_response_len(EM08_S1_QUANTITY)) return;
+ 125   1        crc = modbus_rtu_crc(response, len - 2);
+ 126   1        if (response[len - 1] != (u8)(crc >> 8)) return;
+ 127   1        if (response[len - 2] != (u8)(crc & 0x00ff)) return;
+ 128   1        if (response[0] != EM08_ADDITIONAL_ADDRESS) return;
+ 129   1        if (response[1] != EM08_FUNC_CODE_READ_HOLDING_REG) return;
+ 130   1        if (response[2] != EM08_S1_QUANTITY * 2) return;
+ 131   1        // begin parse reading (32bit float IEEE)
+ 132   1        for (idx = 0; idx < EM08_S1_QUANTITY / 2; ++idx) {
+ 133   2          float reading  = parse_float(response, 3 + idx * 2);
+ 134   2          numeric_reading[idx / 2] = reading;
+ 135   2          reading_updated[idx / 2] = true;
+ 136   2        }
+ 137   1      
+ 138   1      }
+ 139          
+ 140          void em08_modbus_parse_s2_reading(u8 *response, int len) {
+ 141   1        u16 crc; int idx;
+ 142   1        if (len != em08_modbus_read_response_len(EM08_S2_QUANTITY)) return;
+ 143   1        crc = modbus_rtu_crc(response, len - 2);
+ 144   1        if (response[len - 1] != (u8)(crc >> 8)) return;
+ 145   1        if (response[len - 2] != (u8)(crc & 0x00ff)) return;
+ 146   1        if (response[0] != EM08_ADDITIONAL_ADDRESS) return;
+ 147   1        if (response[1] != EM08_FUNC_CODE_READ_HOLDING_REG) return;
+ 148   1        if (response[2] != EM08_S2_QUANTITY * 2) return;
+ 149   1        // begin parse reading (32bit float IEEE)
+ 150   1        for (idx = 0; idx < EM08_S2_QUANTITY / 2; ++idx) {
+ 151   2          float reading  = parse_float(response, 3 + idx * 2);
+ 152   2          numeric_reading[(idx + EM08_S1_QUANTITY)/ 2] = reading;
+ 153   2          reading_updated[(idx + EM08_S1_QUANTITY)/ 2] = true;
+ 154   2        }
+ 155   1      
+ 156   1      }
+ 157          
+ 158          void em08_modbus_parse_single_reading(u8 *response, int len, int idx) {
+ 159   1        u16 crc; 
+ 160   1        if (len != em08_modbus_read_response_len(EM08_SINGLE_QUANTITY)) return;
+ 161   1        crc = modbus_rtu_crc(response, len - 2);
+ 162   1        if (response[len - 1] != (u8)(crc >> 8)) return;
+ 163   1        if (response[len - 2] != (u8)(crc & 0x00ff)) return;
+ 164   1        if (response[0] != EM08_ADDITIONAL_ADDRESS) return;
+ 165   1        if (response[1] != EM08_FUNC_CODE_READ_HOLDING_REG) return;
+ 166   1        if (response[2] != EM08_SINGLE_QUANTITY * 2) return;
+ 167   1        numeric_reading[idx] = parse_float(response, 3);
+ 168   1        reading_updated[idx] = true;
+ 169   1      }
+ 170          
+ 171          static bool mr_wf_callback(u8 *response, int len) {
+ 172   1      
+ 173   1        if (last_modbus_read == MODBUS_SECTION_READ_S1) {
+ 174   2          em08_modbus_parse_s1_reading(response, len);
+ 175   2        } else if (last_modbus_read == MODBUS_SECTION_READ_S2) {
+ 176   2          em08_modbus_parse_s2_reading(response, len);
+ 177   2        } else if (last_modbus_read < EM08_TOTAL_READING) {
+ 178   2          em08_modbus_parse_single_reading(response, len, last_modbus_read);
+C51 COMPILER V9.52.0.0   EM08                                                              04/07/2016 08:22:24 PAGE 4   
+
+ 179   2        } 
+ 180   1      
+ 181   1        finish_workflow_before_next_flow(EM08_MODBUS_READ_WORKFLOW_ID);
+ 182   1        return true;
+ 183   1      }
+ 184          
+ 185          static void mr_wf_start() {
+ 186   1        em08_modbus_read.processing = EM08_TIMEOUT;
+ 187   1        em08_modbus_read.task_id = 0;
+ 188   1        continue_workflow_at_next_round(EM08_MODBUS_READ_WORKFLOW_ID);
+ 189   1      }
+ 190          
+ 191          static void mr_wf_clean() {
+ 192   1        last_modbus_read = MODBUS_SECTION_READ_NONE;
+ 193   1      }
+ 194          
+ 195          static void mr_wf_go(u8 task_id) {
+ 196   1        // task_id is public keep valid
+ 197   1        if (task_id < EM08_MODBUS_READ_WORKFLOW_STEP) {
+ 198   2      
+ 199   2          if (last_modbus_read == MODBUS_SECTION_READ_S1) {
+ 200   3            em08_modbus_read_s1();
+ 201   3          } else if (last_modbus_read == MODBUS_SECTION_READ_S2) {
+ 202   3            em08_modbus_read_s2();
+ 203   3          } else if (last_modbus_read < EM08_TOTAL_READING) {
+ 204   3            em08_modbus_read_range(modbus_address[last_modbus_read], EM08_SINGLE_QUANTITY);
+ 205   3          } // no else here, keep valid in em08_modbus_rtu_read
+ 206   2      
+ 207   2        } else {
+ 208   2          finish_workflow_before_next_flow(EM08_MODBUS_READ_WORKFLOW_ID);
+ 209   2        }
+ 210   1      }
+ 211          
+ 212          
+ 213          int em08_cache_response(char xdata *r) {
+ 214   1        u8 len = COM4.RX_Cnt;
+ 215   1        memset(cached_response, 0, RESP_BUF_SIZE);
+ 216   1      
+ 217   1        if (len > RESP_BUF_SIZE) return 0;
+ 218   1      
+ 219   1        // copy r -> cached_response until [find "\0" or finish r]
+ 220   1        // CRASH if: sizeof(r) > sizeof(cached_response)
+ 221   1        memcpy(cached_response, r, sizeof(char) * len);
+ 222   1        return len;
+ 223   1      }
+ 224          
+ 225          void em08_dispatch_response(char xdata *r, int len) {
+ 226   1        int i;
+ 227   1        printf("%bu[R]:", EM08_UART_ID+1);
+ 228   1          for (i = 0 ; i< len; ++i )
+ 229   1              // TX_write2buff(&COM1, r[i]);
+ 230   1              printf("%02bx ", r[i]);
+ 231   1      
+ 232   1          printf("\r\n");
+ 233   1      
+ 234   1          if (current_workflow[EM08_UART_ID] != NULL) {
+ 235   2          current_workflow[EM08_UART_ID]->callback(r, len);
+ 236   2        } 
+ 237   1      }
+ 238          
+ 239          void em08_init() {
+ 240   1        u8 idx;
+C51 COMPILER V9.52.0.0   EM08                                                              04/07/2016 08:22:24 PAGE 5   
+
+ 241   1        for (idx = 0; idx < EM08_TOTAL_READING; ++idx) {
+ 242   2          numeric_reading[idx] = 0.0;
+ 243   2        }
+ 244   1      
+ 245   1        em08_modbus_read.uart_id = EM08_UART_ID;
+ 246   1        em08_modbus_read.workflow_id = EM08_MODBUS_READ_WORKFLOW_ID;
+ 247   1        em08_modbus_read.task_id = TASK_ID_NONE;
+ 248   1        em08_modbus_read.processing = 0;
+ 249   1        em08_modbus_read.callback = mr_wf_callback;
+ 250   1        em08_modbus_read.start = mr_wf_start;
+ 251   1        em08_modbus_read.go = mr_wf_go;
+ 252   1        em08_modbus_read.clean = mr_wf_clean;
+ 253   1        em08_modbus_read.timeout = NULL;
+ 254   1        last_modbus_read = MODBUS_SECTION_READ_NONE;
+ 255   1        workflow_registration[EM08_MODBUS_READ_WORKFLOW_ID] = &em08_modbus_read;
+ 256   1      }
+ 257          
+ 258          void em08_modbus_rtu_read(u8 section_or_single_tag) {
+ 259   1      
+ 260   1        // keep section_or_single_tag valid 
+ 261   1        if (section_or_single_tag == MODBUS_SECTION_READ_S1 ||
+ 262   1          section_or_single_tag == MODBUS_SECTION_READ_S2 ||
+ 263   1          section_or_single_tag < EM08_TOTAL_READING
+ 264   1          ) 
+ 265   1        {
+ 266   2          last_modbus_read = section_or_single_tag;
+ 267   2          start_workflow(&em08_modbus_read);
+ 268   2          // start_workflow(workflow_registration[EM08_MODBUS_READ_WORKFLOW_ID]);
+ 269   2        }
+ 270   1      }
+ 271          
+ 272          float em08_numeric_reading_get(int idx, bool comsume) {
+ 273   1        if (idx < EM08_TOTAL_READING) {
+ 274   2          if (comsume)
+ 275   2            reading_updated[idx] = false;
+ 276   2      
+ 277   2          return numeric_reading[idx];
+ 278   2        }
+ 279   1          
+ 280   1        return 0;
+ 281   1      }
+ 282          
+ 283          bool em08_numeric_reading_updated(int idx) {
+ 284   1        if (idx < EM08_TOTAL_READING)
+ 285   1          return reading_updated[idx];
+ 286   1        return false;
+ 287   1      }
+ 288          
+ 289          void em08_gen_task() {
+ 290   1        static u8 task_interval = 10;
+ 291   1      
+ 292   1        if (current_workflow[EM08_UART_ID] != NULL && 
+ 293   1          current_workflow[EM08_UART_ID]->workflow_id == EM08_MODBUS_READ_WORKFLOW_ID)
+ 294   1          return;
+ 295   1      
+ 296   1        if (!task_interval || !--task_interval) {
+ 297   2          task_interval = EM08_TASK_INTERVAL;
+ 298   2          call_for_duty(EM08_DUTY);
+ 299   2        }
+ 300   1      }
+ 301          
+
+C51 COMPILER V9.52.0.0   EM08                                                              04/07/2016 08:22:24 PAGE 6   
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2040    ----
+   CONSTANT SIZE    =     46    ----
+   XDATA SIZE       =    109    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      4      81
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

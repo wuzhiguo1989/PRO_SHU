@@ -1,0 +1,599 @@
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE KEY
+OBJECT MODULE PLACED IN key.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE key.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "key.h"
+   2          #include "power.h"
+   3          #include "utils.h"
+   4          #include "string.h"
+   5          #include "lm567.h"
+   6          #include "stc15wxxxx.h"
+   7          #include "beep.h"
+   8          #include "task.h"
+   9          
+  10          #define COUNTER_PER_SECOND 50
+  11          
+  12          volatile u8 resend_lock_command_signal = 0;
+  13          volatile u8 restart_read_status_signal = 0;
+  14          volatile u8 lock_on_detect_signal = 1; 
+  15          volatile u8 lock_off_detect_signal = 1;
+  16          volatile cycle_control_t xdata led_flicker;
+  17          volatile disp_t xdata led_mode_set;
+  18          
+  19          static u8 xdata cnt_for_beep = 0; 
+  20          
+  21          void led_display_disable() 
+  22          {
+  23   1          led_power_disable();  
+  24   1      }
+  25          
+  26          void led_io_init()
+  27          {
+  28   1          // P54
+  29   1          push_pull(5, 0x10);
+  30   1          // P55
+  31   1          push_pull(5, 0x20);
+  32   1          // P14
+  33   1          push_pull(1, 0x10);
+  34   1      
+  35   1          led_display_disable();
+  36   1      }
+  37          
+  38          
+  39          count_down_t xdata lock_count_down;
+  40          count_down_t xdata open_count_down;
+  41          count_down_t xdata alter_beep_count_down;
+  42          count_down_t xdata trace_beep_count_down;
+  43          // count_down_t xdata schedule_beep_count_down;
+  44          count_down_t xdata trace_mute_count_down;
+  45          // count_down_t xdata schedule_mute_count_down;
+  46          count_down_t xdata sleep_count_down;
+  47          count_down_t xdata open_beep_count_down;
+  48          count_down_t xdata lock_beep_count_down;
+  49          count_down_t xdata schedule_count_down;
+  50          count_down_t xdata resend_command_count_down;
+  51          count_down_t xdata resend_restart_count_down;
+  52          count_down_t xdata open_delay;
+  53          count_down_t xdata lock_delay;
+  54          void lock_count_down_callback() 
+  55          {
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 2   
+
+  56   1        power_work_disable();
+  57   1          if (!lock_off_detect_signal && !status_lock_detect()){
+  58   2              EX1 = ENABLE;
+  59   2              // 关锁成功上报
+  60   2              resend_lock_command_signal = 1;
+  61   2              uart_send_lock_by_hand_success();
+  62   2              status = off;
+  63   2              ++ cnt_lock;
+  64   2          } else {
+  65   2              resend_lock_command_signal = 2;
+  66   2              uart_send_lock_by_hand_fail();
+  67   2              status = on;
+  68   2              ++ cnt_lock;
+  69   2          }
+  70   1          lock_off_detect_signal = 1;
+  71   1          k_power_disable();
+  72   1          // reload_sleep_count_down();
+  73   1          // 倒计时一秒等待回应 
+  74   1          reload_resend_lock_command(); 
+  75   1      }
+  76          
+  77          
+  78          void open_count_down_callback() 
+  79          { 
+  80   1        power_work_disable();
+  81   1          if(!lock_on_detect_signal && status_lock_detect()){
+  82   2              // 开锁成功上报
+  83   2              uart_send_open_success();
+  84   2              status = on;
+  85   2          } else {
+  86   2              uart_send_open_fail();
+  87   2              status = off;
+  88   2              reload_sleep_count_down();
+  89   2          } 
+  90   1          lock_on_detect_signal = 1;
+  91   1          k_power_disable();  
+  92   1      }
+  93          
+  94          
+  95          void open_beep_count_down_callback(){
+  96   1          speak_mode = mute; 
+  97   1          speak_beep_disable();
+  98   1      }
+  99          
+ 100          void lock_beep_count_down_callback(){
+ 101   1          speak_mode = mute; 
+ 102   1          speak_beep_disable();
+ 103   1      }
+ 104          
+ 105          void alter_beep_count_down_callback()
+ 106          {
+ 107   1          speak_beep_disable();
+ 108   1          speak_mode = mute;
+ 109   1      }
+ 110          
+ 111          void trace_beep_count_down_callback()
+ 112          {
+ 113   1          cnt_for_beep ++;
+ 114   1          if(cnt_for_beep >= 3){ 
+ 115   2             speak_beep_disable();
+ 116   2             speak_mode = mute;
+ 117   2             // reload_sleep_count_down(); 
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 3   
+
+ 118   2          } else{
+ 119   2             reload_trace_mute_count_down(); 
+ 120   2          }
+ 121   1      }
+ 122          
+ 123          
+ 124          void trace_mute_count_down_callback()
+ 125          {
+ 126   1          reload_trace_beep_count_down();
+ 127   1      }
+ 128          
+ 129          
+ 130          void sleep_count_down_call_back()
+ 131          {
+ 132   1          INT_PROC |= SLEEP_DUTY;
+ 133   1      }
+ 134          
+ 135          void resend_lock_command_call_back()
+ 136          {
+ 137   1          if(!resend_lock_command_signal){
+ 138   2              // 收到、准备睡眠
+ 139   2              reload_sleep_count_down(); 
+ 140   2          } else if(resend_lock_command_signal == 1){
+ 141   2              // 重新发送成功
+ 142   2              uart_send_lock_by_hand_success();
+ 143   2              reload_resend_lock_command();
+ 144   2              ++  cnt_lock;
+ 145   2          } else {
+ 146   2              // 重新发送失败
+ 147   2              uart_send_lock_by_hand_fail();
+ 148   2              reload_resend_lock_command();
+ 149   2              ++  cnt_lock;
+ 150   2          }
+ 151   1      }
+ 152          
+ 153          void resend_restart_command_call_back()
+ 154          {
+ 155   1          uart_send_status_restart();
+ 156   1          reload_resend_restart_count_down();
+ 157   1          ++ cnt_restart;
+ 158   1      }
+ 159          
+ 160          void open_delay_callback(){
+ 161   1          lock_on_detect_signal = 0;
+ 162   1      }
+ 163          
+ 164          void lock_delay_callback(){
+ 165   1          lock_off_detect_signal = 0;
+ 166   1      }
+ 167          
+ 168          
+ 169          
+ 170          
+ 171          void count_down_init(count_down_t xdata *cnt, event_cb func) {
+ 172   1          cnt -> second = 0;
+ 173   1          cnt -> millisecond = 0;
+ 174   1          cnt -> p_callback = func;
+ 175   1      }
+ 176          
+ 177          void count_down_reload(count_down_t xdata *cnt, const u16 second, const u8 millisecond) {
+ 178   1          if(!millisecond) {
+ 179   2              cnt -> second = second - 1;
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 4   
+
+ 180   2              cnt -> millisecond = COUNTER_PER_SECOND;
+ 181   2          } else {
+ 182   2              cnt -> second = second;
+ 183   2              cnt -> millisecond = millisecond;
+ 184   2          }
+ 185   1      }
+ 186          
+ 187          
+ 188          bool count_down_at(count_down_t xdata *cnt) {
+ 189   1      if (!cnt -> second && !cnt -> millisecond)
+ 190   1              return FALSE;
+ 191   1          
+ 192   1          if (!--cnt -> millisecond)      // --ms == 0
+ 193   1          {
+ 194   2              if (!cnt -> second) {
+ 195   3                  if (cnt -> p_callback)
+ 196   3                      cnt -> p_callback();
+ 197   3                  return TRUE;
+ 198   3              } else {
+ 199   3                  --cnt -> second;
+ 200   3                  cnt -> millisecond = COUNTER_PER_SECOND;
+ 201   3              }
+ 202   2          }
+ 203   1      
+ 204   1          return FALSE;
+ 205   1      }
+ 206          
+ 207          void count_down_cancel(count_down_t xdata *cnt) {
+ 208   1          cnt -> second = 0;
+ 209   1          cnt -> millisecond = 0;
+ 210   1          // cnt -> p_callback = NULL;
+ 211   1      }
+ 212          
+ 213          
+ 214          void count_down_at_all_task()
+ 215          {
+ 216   1          count_down_at(&lock_count_down);
+ 217   1          count_down_at(&open_count_down);
+ 218   1          count_down_at(&alter_beep_count_down);
+ 219   1          count_down_at(&trace_beep_count_down);
+ 220   1          // count_down_at(&schedule_beep_count_down);
+ 221   1          count_down_at(&trace_mute_count_down);
+ 222   1          // count_down_at(&schedule_mute_count_down);
+ 223   1          count_down_at(&sleep_count_down);
+ 224   1          count_down_at(&open_beep_count_down);
+ 225   1          count_down_at(&lock_beep_count_down);
+ 226   1          count_down_at(&resend_command_count_down);
+ 227   1          count_down_at(&resend_restart_count_down);
+ 228   1          count_down_at(&open_delay);
+ 229   1          count_down_at(&lock_delay);
+ 230   1      }
+ 231          
+ 232          void count_down_init_all_task()
+ 233          {
+ 234   1          count_down_init(&lock_count_down, lock_count_down_callback);
+ 235   1          count_down_init(&open_count_down, open_count_down_callback);
+ 236   1          count_down_init(&alter_beep_count_down,alter_beep_count_down_callback);
+ 237   1          count_down_init(&trace_beep_count_down, trace_beep_count_down_callback);
+ 238   1          // count_down_init(&schedule_beep_count_down, schedule_beep_count_down_callback);
+ 239   1          count_down_init(&trace_mute_count_down, trace_mute_count_down_callback);
+ 240   1          // count_down_init(&schedule_mute_count_down, schedule_mute_count_down_callback);
+ 241   1          count_down_init(&sleep_count_down,
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 5   
+
+ 242   1              sleep_count_down_call_back);
+ 243   1          count_down_init(&open_beep_count_down,
+ 244   1              open_beep_count_down_callback);
+ 245   1          count_down_init(&lock_beep_count_down,
+ 246   1              lock_beep_count_down_callback);
+ 247   1          count_down_init(&resend_command_count_down,resend_lock_command_call_back);
+ 248   1          count_down_init(&resend_restart_count_down,resend_restart_command_call_back);
+ 249   1          count_down_init(&open_delay, open_delay_callback);
+ 250   1          count_down_init(&lock_delay, lock_delay_callback);
+ 251   1      
+ 252   1      }
+ 253          
+ 254          void reload_resend_restart_count_down(){
+ 255   1          count_down_reload(&resend_restart_count_down, 1, 0);
+ 256   1      }
+ 257          
+ 258          void cancel_resend_restart_count_down(){
+ 259   1          count_down_cancel(&resend_restart_count_down);
+ 260   1      }
+ 261          
+ 262          void reload_lock_count_down() 
+ 263          {
+ 264   1         count_down_reload(&lock_count_down, 5, 0); 
+ 265   1         power_lock_work();
+ 266   1      }
+ 267          
+ 268          void reload_open_count_down() 
+ 269          { 
+ 270   1         count_down_reload(&open_count_down, 3, 0);
+ 271   1         power_open_work();
+ 272   1      }
+ 273          
+ 274          void reload_open_beep_count_down()
+ 275          {
+ 276   1          speak_mode = open_beep; 
+ 277   1          count_down_reload(&open_beep_count_down, 0, 10); 
+ 278   1      }
+ 279          
+ 280          void reload_lock_beep_count_down()
+ 281          {
+ 282   1          speak_mode = lock_beep; 
+ 283   1          count_down_reload(&lock_beep_count_down, 0, 10); 
+ 284   1      } 
+ 285          
+ 286          void reload_alter_beep_count_down()
+ 287          {
+ 288   1          // 5
+ 289   1          count_down_reload(&alter_beep_count_down, 5, 0); 
+ 290   1      }
+ 291          
+ 292          void reload_sleep_count_down()
+ 293          {
+ 294   1          // 1
+ 295   1          count_down_reload(&sleep_count_down, 3, 0); 
+ 296   1      }
+ 297          
+ 298          void reload_lock_sleep_count_down()
+ 299          {
+ 300   1          // 5
+ 301   1          count_down_reload(&sleep_count_down, 8, 0); 
+ 302   1      }
+ 303          
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 6   
+
+ 304          void reload_open_sleep_count_down()
+ 305          {
+ 306   1          // 3
+ 307   1          count_down_reload(&sleep_count_down, 5, 0); 
+ 308   1      }
+ 309          
+ 310          void reload_alter_sleep_count_down()
+ 311          {
+ 312   1          count_down_reload(&sleep_count_down, 6, 0); 
+ 313   1      }
+ 314          
+ 315          void reload_schedule_sleep_count_down()
+ 316          {
+ 317   1          count_down_reload(&sleep_count_down, 900, 0);
+ 318   1      }
+ 319          
+ 320          
+ 321          void cancle_sleep_count_down()
+ 322          {
+ 323   1          count_down_cancel(&sleep_count_down);
+ 324   1      }
+ 325          
+ 326          void cancle_lock_count_down()
+ 327          {
+ 328   1          count_down_cancel(&lock_count_down);
+ 329   1      }
+ 330          
+ 331          void cancle_open_count_down()
+ 332          {
+ 333   1          count_down_cancel(&open_count_down);
+ 334   1      }
+ 335          
+ 336          void cancle_resend_lock_command()
+ 337          {
+ 338   1          count_down_cancel(&resend_command_count_down);   
+ 339   1      }
+ 340          
+ 341          void reload_open_delay(){
+ 342   1          count_down_reload(&open_delay, 0, 40); 
+ 343   1      }
+ 344          
+ 345          void reload_lock_delay(){
+ 346   1          count_down_reload(&lock_delay, 0, 40);
+ 347   1      }
+ 348          
+ 349          
+ 350          void cancel_open_delay(){
+ 351   1          count_down_cancel(&open_delay);
+ 352   1      }
+ 353          
+ 354          void cancel_lock_delay(){
+ 355   1          count_down_cancel(&lock_delay);
+ 356   1      }
+ 357          
+ 358          void reload_cnt_for_beep() 
+ 359          {
+ 360   1         cnt_for_beep = 0;
+ 361   1      }
+ 362          
+ 363          void reload_trace_beep_count_down() 
+ 364          {
+ 365   1        speak_mode = trace_beep;
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 7   
+
+ 366   1        count_down_reload(&trace_beep_count_down, 0, 25); 
+ 367   1      }
+ 368          
+ 369          void reload_trace_mute_count_down()
+ 370          {
+ 371   1         speak_beep_disable();
+ 372   1         speak_mode = mute;
+ 373   1         count_down_reload(&trace_mute_count_down, 0, 25); 
+ 374   1      }
+ 375          
+ 376          void reload_resend_lock_command()
+ 377          {
+ 378   1          count_down_reload(&resend_command_count_down, 1, 0);   
+ 379   1      }
+ 380          
+ 381          
+ 382          
+ 383          void init_sync_object() {
+ 384   1          led_flicker.cycle_enable = OFF;
+ 385   1          led_flicker.counter_for_cycle = 0;
+ 386   1      }
+ 387          
+ 388          
+ 389          static void led_display_off_driver_init();        
+ 390          static void schedule_driver_init();  
+ 391          static void trace_driver_init();         
+ 392          static void lock_driver_init();               
+ 393          static void open_driver_init(); 
+ 394          
+ 395          static void led_display_off_half_cycle_reached();  
+ 396          static void schedule_half_cycle_reached(); 
+ 397          static void trace_half_cycle_reached(); 
+ 398          static void lock_half_cycle_reached(); 
+ 399          static void open_half_cycle_reached();
+ 400          
+ 401          // idata *display_driver -> detailed display_driver
+ 402          static  code driver_init_pt const driver_init[5] =
+ 403          {
+ 404              led_display_off_driver_init,    
+ 405              schedule_driver_init,                     
+ 406              trace_driver_init,                  
+ 407              lock_driver_init,                     
+ 408              open_driver_init                     
+ 409          };
+ 410          
+ 411          
+ 412          
+ 413          static code half_cycle_reached_pt const half_cycle_callback[5] = 
+ 414          {
+ 415              NULL,     
+ 416              schedule_half_cycle_reached,         
+ 417              trace_half_cycle_reached,          
+ 418              lock_half_cycle_reached,
+ 419              open_half_cycle_reached  
+ 420          };
+ 421          
+ 422          static idata u8 const cycle_param[5] = {0, 200, 100, 50, 50};
+ 423          
+ 424          u8 cnt_for_cycle = 0;
+ 425          
+ 426          void cycle_based_control() {
+ 427   1          // cycle_control_t
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 8   
+
+ 428   1          if (led_flicker.cycle_enable) {
+ 429   2              ++led_flicker.counter_for_cycle;
+ 430   2          }
+ 431   1      
+ 432   1      }
+ 433          
+ 434          
+ 435          static void half_cycle_reached() {
+ 436   1          if (half_cycle_callback[led_mode_set])
+ 437   1              half_cycle_callback[led_mode_set]();
+ 438   1          led_flicker.counter_for_cycle = 0;
+ 439   1      }
+ 440          
+ 441          static void led_cycle_based_adjust() {
+ 442   1          if (led_flicker.cycle_enable) {
+ 443   2              if (led_flicker.counter_for_cycle >= cycle_param[led_mode_set])
+ 444   2                  half_cycle_reached();
+ 445   2      
+ 446   2          } else {
+ 447   2              led_flicker.counter_for_cycle = 0;
+ 448   2          }
+ 449   1      }
+ 450          
+ 451          
+ 452          void led_mode_changed() {
+ 453   1          driver_init_pt led_mode_driver_init = driver_init[led_mode_set];
+ 454   1          if (led_mode_driver_init)
+ 455   1              led_mode_driver_init();
+ 456   1          led_flicker.counter_for_cycle = 0;
+ 457   1      } 
+ 458          // ------------------------- public -------------------------
+ 459          void display_startup_init() {
+ 460   1          led_display_off_driver_init();
+ 461   1      }
+ 462          
+ 463          void led_display_task()
+ 464          {
+ 465   1          led_cycle_based_adjust();
+ 466   1      }
+ 467          
+ 468          
+ 469          static void led_display_off_driver_init(){
+ 470   1          led_display_disable();
+ 471   1      }
+ 472          
+ 473          u8 cnt_for_cycle_schedule = 0;
+ 474          bit flag_reverse = 0;
+ 475          static void schedule_driver_init() {
+ 476   1          led_flicker.cycle_enable = ENABLE;
+ 477   1          cnt_for_cycle_schedule = 0;
+ 478   1          led_red_power_enable();
+ 479   1      }
+ 480          
+ 481          static void schedule_half_cycle_reached() {
+ 482   1          ++ cnt_for_cycle_schedule;
+ 483   1          if(cnt_for_cycle_schedule == 1){
+ 484   2              led_power_disable();
+ 485   2          }else if(cnt_for_cycle_schedule == 4){
+ 486   2              led_red_power_enable();
+ 487   2              cnt_for_cycle_schedule = 0;
+ 488   2          }
+ 489   1      }
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 9   
+
+ 490          
+ 491          u8 cnt_for_cycle_trace = 0;
+ 492          static void trace_driver_init() {
+ 493   1          led_flicker.cycle_enable = ENABLE;
+ 494   1          cnt_for_cycle_trace = 0;
+ 495   1          led_blue_power_enable();
+ 496   1      }
+ 497          
+ 498          
+ 499          
+ 500          static void trace_half_cycle_reached() {
+ 501   1          ++ cnt_for_cycle_trace;
+ 502   1          if(cnt_for_cycle_trace == 1){
+ 503   2              led_power_disable();
+ 504   2          } else if(cnt_for_cycle_trace == 2){
+ 505   2              led_blue_power_enable();
+ 506   2          } else if(cnt_for_cycle_trace == 3){
+ 507   2              led_power_disable();
+ 508   2          } else if(cnt_for_cycle_trace == 4){
+ 509   2              led_blue_power_enable();
+ 510   2          } else if(cnt_for_cycle_trace == 5){
+ 511   2              led_flicker.cycle_enable = OFF;
+ 512   2              led_power_disable();
+ 513   2              cnt_for_cycle_trace = 0;
+ 514   2              led_mode_set = led_display_off;
+ 515   2          }
+ 516   1      
+ 517   1      }
+ 518          
+ 519          
+ 520          static void lock_driver_init() {
+ 521   1          led_flicker.cycle_enable = ENABLE;
+ 522   1          led_red_power_enable();
+ 523   1      }
+ 524          
+ 525          static void lock_half_cycle_reached() {
+ 526   1          led_flicker.cycle_enable = OFF;
+ 527   1          led_power_disable();
+ 528   1          cnt_for_cycle = 0;
+ 529   1          led_mode_set = led_display_off;
+ 530   1      }
+ 531          
+ 532          
+ 533          static void open_driver_init() {
+ 534   1          led_flicker.cycle_enable = ENABLE;
+ 535   1          led_green_power_enable();
+ 536   1      }
+ 537          
+ 538          static void open_half_cycle_reached() {
+ 539   1              led_flicker.cycle_enable = OFF;
+ 540   1              led_power_disable();
+ 541   1              cnt_for_cycle = 0;
+ 542   1              led_mode_set = led_display_off;
+ 543   1              led_mode_changed();
+ 544   1      
+ 545   1      }
+ 546          
+ 547          
+ 548          void led_display_stop()
+ 549          {
+ 550   1          led_flicker.cycle_enable = OFF;
+ 551   1          led_power_disable();
+C51 COMPILER V9.52.0.0   KEY                                                               01/13/2017 18:44:52 PAGE 10  
+
+ 552   1          cnt_for_cycle = 0;
+ 553   1          led_mode_set = led_display_off;
+ 554   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1408    ----
+   CONSTANT SIZE    =     20    ----
+   XDATA SIZE       =     78       6
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =      5    ----
+   BIT SIZE         =      1    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,14 @@
+"STARTUP.obj",
+"ble.obj",
+"sync.obj",
+"usart.obj",
+"main.obj",
+"task.obj",
+"share.obj",
+"utils.obj",
+"e2prom.obj",
+"entang.obj",
+"i2c.obj" 
+TO "lock" 
+
+REMOVEUNUSED 

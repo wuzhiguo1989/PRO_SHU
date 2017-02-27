@@ -1,0 +1,267 @@
+C51 COMPILER V9.52.0.0   MAIN                                                              01/17/2017 13:47:49 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE main.c OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          *   STC-ISP导入芯片信息至Keil
+   3          *   采用STC15W4K32S4系列
+   4          *   假定测试芯片的工作频率为24.000MHz
+   5          */
+   6          
+   7          #include "utils.h"
+   8          #include "sync.h"
+   9          #include "task.h"
+  10          #include "key.h"
+  11          #include "string.h"
+  12          #include "power.h"
+  13          #include "lm567.h"
+  14          #include "utils.h"
+  15          #include "usart.h"
+  16          #include "beep.h"
+  17          #include "interact.h"
+  18          
+  19          
+  20          
+  21          #define TIME_PLUS 40
+  22          
+  23          static void init_system_component();
+  24          static void init_logic_params();
+  25          
+  26          
+  27          
+  28          
+  29          void Delay1000ms()      //@5.5296MHz
+  30          {
+  31   1          unsigned char i, j, k;
+  32   1      
+  33   1          _nop_();
+  34   1          _nop_();
+  35   1          i = 22;
+  36   1          j = 3;
+  37   1          k = 227;
+  38   1          do
+  39   1          {
+  40   2              do
+  41   2              {
+  42   3                  while (--k);
+  43   3              } while (--j);
+  44   2          } while (--i);
+  45   1      }
+  46          
+  47          
+  48          void instant_effective_init() {
+  49   1          init_system_component();
+  50   1          init_logic_params();
+  51   1      
+  52   1      }
+  53          
+  54          
+  55          void main()
+C51 COMPILER V9.52.0.0   MAIN                                                              01/17/2017 13:47:49 PAGE 2   
+
+  56          {  
+  57   1          // stop catching interrupt
+  58   1          EA = 0;
+  59   1      
+  60   1          instant_effective_init();
+  61   1          count_down_init_all_task();
+  62   1          Delay1000ms();
+  63   1          
+  64   1          // begin catching interrupt
+  65   1          EA = 1;
+  66   1      
+  67   1          cpu_wake_up_disable();
+  68   1      
+  69   1          EX1 = ENABLE;
+  70   1           
+  71   1          INT_PROC = SLEEP_DUTY;   
+  72   1      
+  73   1          while(1) {
+  74   2              // Feed dog
+  75   2              reset_watch_dog();
+  76   2      
+  77   2              if(INT_PROC & KEY_DUTY)
+  78   2              {
+  79   3                  count_down_at_all_task();
+  80   3                  if(detect_key_time_start)
+  81   3                      key_task_duty();
+  82   3                  if(read_status_signal){
+  83   4                      read_lock_status();
+  84   4                  }
+  85   3                  INT_PROC &= ~KEY_DUTY;
+  86   3                  continue;
+  87   3              }
+  88   2      
+  89   2              if(INT_PROC & UART_DUTY) 
+  90   2              { 
+  91   3                  uart_process_recieved(); 
+  92   3                  INT_PROC &= ~UART_DUTY;              
+  93   3                  continue; 
+  94   3              } 
+  95   2      
+  96   2      
+  97   2              // 5ms检测一次
+  98   2              if(INT_PROC & TICK_DUTY)
+  99   2              {
+ 100   3                  if (USART_RX_Block(&COM1))  
+ 101   3                      INT_PROC |= UART_DUTY;
+ 102   3                  if (!lock_on_detect_signal){
+ 103   4                      if(status_lock_on_detect() > TIME_PLUS){
+ 104   5                          power_work_disable();
+ 105   5                          cancle_open_count_down();
+ 106   5                          if(!INT1){
+ 107   6                              //go to wait for 2s
+ 108   6                              reload_open_ack_count_down();
+ 109   6                          } else {
+ 110   6                              uart_id = open_success;
+ 111   6                              reload_uart_wakeup_count_down();
+ 112   6                              status = on;
+ 113   6                          }
+ 114   5                          cnt_on_time_plus = 0;
+ 115   5                          lock_on_detect_signal = 1;
+ 116   5                          k_power_disable();
+ 117   5                      }
+C51 COMPILER V9.52.0.0   MAIN                                                              01/17/2017 13:47:49 PAGE 3   
+
+ 118   4                  }
+ 119   3                  if (!lock_off_detect_signal){
+ 120   4                      if(status_lock_off_detect() > TIME_PLUS){
+ 121   5                          status = off;
+ 122   5                          if(!open_lock_ack_signal){
+ 123   6                              // lock
+ 124   6                              // lock success
+ 125   6                              uart_id = lock_success;
+ 126   6                              cancle_lock_count_down();
+ 127   6                          } else {
+ 128   6                              // open ack
+ 129   6                              // open fail
+ 130   6                              uart_id = open_fail;
+ 131   6                              // todo : cancel open_lock ack count_down
+ 132   6                              cancel_open_ack_lock_count_down();
+ 133   6                          }
+ 134   5                          cnt_off_time_plus = 0;
+ 135   5                          lock_off_detect_signal = 1; 
+ 136   5                          power_work_disable();
+ 137   5                          EX1 = ENABLE;
+ 138   5                          k_power_disable();
+ 139   5                          reload_uart_wakeup_count_down();   
+ 140   5                      }
+ 141   4                      
+ 142   4                  }
+ 143   3                  cycle_based_control();
+ 144   3                  led_display_task(); 
+ 145   3                  INT_PROC &= ~TICK_DUTY;
+ 146   3                  continue;            
+ 147   3              }
+ 148   2      
+ 149   2              if(INT_PROC & LOCK_DETECT_DUTY){
+ 150   3                  reload_sleep_count_down();
+ 151   3                  detect_key_time_start = 1;
+ 152   3                  INT_PROC &= ~LOCK_DETECT_DUTY;
+ 153   3                  continue;
+ 154   3              }
+ 155   2      
+ 156   2      
+ 157   2              if(INT_PROC & SLEEP_DUTY)
+ 158   2              {
+ 159   3                  speak_mode = mute;
+ 160   3                  speak_beep_disable();
+ 161   3                  led_mode_set = led_display_off;
+ 162   3                  led_display_stop();
+ 163   3                  status_in_sleep = 0;
+ 164   3                  EX1 = ENABLE;
+ 165   3                  INT_PROC &= ~SLEEP_DUTY;
+ 166   3                  PCON = 0x02;
+ 167   3                  continue;
+ 168   3              }
+ 169   2      
+ 170   2              if(INT_PROC & LOCK_DUTY)
+ 171   2              {
+ 172   3                  cancle_sleep_count_down();
+ 173   3                  cancle_open_count_down();
+ 174   3                  cancel_open_ack_count_down();
+ 175   3                  cancel_open_ack_lock_count_down();
+ 176   3                  reload_lock_count_down();
+ 177   3                  reload_lock_beep_count_down();
+ 178   3                  k_power_enable();
+ 179   3                  lock_off_detect_signal = 0;
+C51 COMPILER V9.52.0.0   MAIN                                                              01/17/2017 13:47:49 PAGE 4   
+
+ 180   3                  cnt_off_time_plus = 0;
+ 181   3                  led_mode_set = lock;
+ 182   3                  led_mode_changed(); 
+ 183   3                  INT_PROC &= ~LOCK_DUTY;
+ 184   3                  continue;
+ 185   3              }
+ 186   2      
+ 187   2              if(INT_PROC & LOCK_FAIL_DUTY)
+ 188   2              {
+ 189   3                  cancle_open_count_down();
+ 190   3                  cancle_lock_count_down();
+ 191   3                  led_flicker.cycle_enable = OFF;
+ 192   3                  led_power_disable();
+ 193   3                  status = on;
+ 194   3                  uart_id = lock_fail;
+ 195   3                  reload_uart_wakeup_count_down();
+ 196   3                  EX1 = ENABLE;
+ 197   3                  INT_PROC &= ~LOCK_FAIL_DUTY;
+ 198   3                  continue;
+ 199   3              }
+ 200   2          }
+ 201   1      }
+ 202          
+ 203          
+ 204          static void init_system_component() {  
+ 205   1          // timer
+ 206   1          init_system_tick();
+ 207   1      
+ 208   1          
+ 209   1        // power
+ 210   1        power_io_init();
+ 211   1      
+ 212   1          alter_beep_protect();
+ 213   1      
+ 214   1          speak_init_params();
+ 215   1          
+ 216   1          init_beep_io();
+ 217   1      
+ 218   1          led_io_init();
+ 219   1      
+ 220   1          init_adc();
+ 221   1      
+ 222   1          uart_Init();
+ 223   1        
+ 224   1      }
+ 225          
+ 226          
+ 227          static void init_logic_params() {
+ 228   1         init_sync_object();
+ 229   1      }
+ 230          
+ 231          
+ 232          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    433    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+C51 COMPILER V9.52.0.0   MAIN                                                              01/17/2017 13:47:49 PAGE 5   
+
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

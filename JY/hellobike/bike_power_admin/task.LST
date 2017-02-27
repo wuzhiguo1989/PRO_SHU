@@ -1,0 +1,31 @@
+C51 COMPILER V9.52.0.0   TASK                                                              10/30/2016 15:12:23 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE TASK
+OBJECT MODULE PLACED IN task.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE task.c OMF2 ROM(SMALL) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "task.h"
+   2          
+   3          // SYSTEM ALL INT MASK
+   4          volatile u8 idata INT_PROC = 0;
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   ----    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =      1    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

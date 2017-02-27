@@ -1,0 +1,325 @@
+C51 COMPILER V9.52.0.0   SYNC                                                              10/11/2015 15:46:03 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE SYNC
+OBJECT MODULE PLACED IN sync.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE sync.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "sync.h"
+   2          #include "display.h"
+   3          #include "shared.h"
+   4          #include "intrins.h"
+   5          #include "uart.h"
+   6          #include "adc.h"
+   7          #include "lm567.h"
+   8          
+   9          
+  10          #define PCA0 0
+  11          #define PCA1 1
+  12          #define PCA2 2
+  13          //static void impluse_hold();
+  14          //static void set_phase_delay(  hertz_t hertz);
+  15          // static void do_per_minute();
+  16          static BOOL minute_count_down();
+  17          
+  18          static u8 counter_for_second = COUNTER_PER_SECOND;
+  19          static u8 counter_for_minute = SECONDS_PER_MINUTE;
+  20          static u8 counter_for_test_cycle = 30;
+  21          //sstatic u16 counter_for_hertz = 0;    // count to 60Hz * 2 * 60(s)
+  22          static u16 pca_next_target;
+  23          static hertz_t current_hertz = 60;    // Default is 60Hz
+  24          static u16 counter_for_hertz = 0;
+  25          static u8 counter_for_pca5ms = PCA5ms;
+  26          
+  27          // #define ensure_impulse_off() switch_off(CCP0); switch_off(CCP1); switch_off(CCP2)
+  28          // 3路PCA控制灯光输出
+  29          // todo 
+  30          // PCA初始化
+  31          void init_phase_sync_timer() {
+  32   1        CCON = 0;                       //初始化PCA控制寄存器
+  33   1                                          //PCA定时器停止
+  34   1                                          //清除CF标志
+  35   1                                          //清除模块中断标志
+  36   1          CL = 0;
+  37   1          CH = 0;
+  38   1          CMOD = 0x00;                    //设置PCA时钟源
+  39   1                                          //禁止PCA定时器溢出中断
+  40   1          CCAPM0 = 0x49;                  //PCA模块0为16位定时器模式
+  41   1          CCAPM1 = 0x49;                  //PCA模块1为16位定时器模式
+  42   1          CCAPM2 = 0x49;                  //PCA模块2为16位定时器模式
+  43   1          PPCA = 1;
+  44   1          CR = 0;
+  45   1       //   CR = 1;                         //PCA定时器开始工作
+  46   1      }
+  47          
+  48          void init_ac_driver() {
+  49   1        INT0 = 1;
+  50   1          IT0 = 0;                    //  设置INT0的中断类型 (1:仅下降沿 0:上升沿和下降沿)
+  51   1          EX0 = ENABLE;                
+  52   1      }
+  53          
+  54          // 0.25ms中断计时
+  55          void init_sync_timer()
+C51 COMPILER V9.52.0.0   SYNC                                                              10/11/2015 15:46:03 PAGE 2   
+
+  56          {
+  57   1        AUXR &= 0x7f;         // 12T
+  58   1          TMOD &= 0xf0;                   // 模式0(16位自动重装载)  
+  59   1          TL0 = 0x80;     //设置定时初值
+  60   1          TH0 = 0xFE;     //设置定时初值
+  61   1          TF0 = 0;
+  62   1          TR0 = 1;                        // 定时器0开始计时
+  63   1          ET0 = ENABLE;         // 
+  64   1        PT0 = 0;            // 高优先级
+  65   1      }
+  66          
+  67          void reset_all_counters() {
+  68   1        reset_counter_for_minute();
+  69   1        reset_counter_for_second();
+  70   1        // reset_counter_for_hertz();
+  71   1        reset_counter_for_cycle();
+  72   1      }
+  73          
+  74          // static void 
+  75          // do_per_minute() {
+  76          
+  77          //  current_hertz = counter_for_hertz / SECONDS_PER_MINUTE;
+  78          //  reset_counter_for_hertz();
+  79          //  reset_current_phase_delay_with(current_hertz);  
+  80          // }
+  81          
+  82          void sync_with_alert() {  // 4000ms @18.432MHz
+  83   1        unsigned char i, j, k;
+  84   1      
+  85   1        _nop_();
+  86   1        _nop_();
+  87   1        i = 54;
+  88   1        j = 35;
+  89   1        k = 163;
+  90   1        do
+  91   1        {
+  92   2          do
+  93   2          {
+  94   3            while (--k);
+  95   3          } while (--j);
+  96   2        } while (--i);
+  97   1      }
+  98          
+  99          static BOOL
+ 100          minute_count_down() {
+ 101   1        --counter_for_second;
+ 102   1        if (!counter_for_second) {
+ 103   2          reset_counter_for_second();
+ 104   2          --counter_for_minute;
+ 105   2          if (!counter_for_minute) {
+ 106   3            reset_counter_for_minute();
+ 107   3            return YES;
+ 108   3          }
+ 109   2        } 
+ 110   1        return NO;
+ 111   1       }
+ 112          
+ 113          
+ 114          void exint0_isr() interrupt 0 using 1  // follow POWER AC impluse 50Hz or 60Hz
+ 115          {
+ 116   1          // VERY IMPORTANT DON'T DO ANYTHING BEFORE HERE
+ 117   1          phase_ctrl_disable();
+C51 COMPILER V9.52.0.0   SYNC                                                              10/11/2015 15:46:03 PAGE 3   
+
+ 118   1          switch_off(CCP0); 
+ 119   1          switch_off(CCP1); 
+ 120   1          switch_off(CCP2);
+ 121   1          INT_PROC |= EXINT_PROC;
+ 122   1          FLAG = INT0;     // =0(Fall); =1(Rise)
+ 123   1          // calc new param
+ 124   1        // ++counter_for_hertz;
+ 125   1      }
+ 126          
+ 127          void pca_isr (void) interrupt 7 using 1
+ 128          {
+ 129   1          if(CCF0)       //PCA模块0中断
+ 130   1          {
+ 131   2              CCF0 = 0;       //清PCA模块0中断标志
+ 132   2              if(calibrated_phase_delay[0])
+ 133   2              {
+ 134   3                  if(impluse_holding[0])
+ 135   3                  {
+ 136   4                     switch_off(CCP0);
+ 137   4                     impluse_holding[0] = NO;
+ 138   4                  }
+ 139   3                  else
+ 140   3                  {
+ 141   4                      switch_on(CCP0);
+ 142   4                      CCPA_tmp[0] = CCPA_tmp[0] +  PHASE_WIDTH;
+ 143   4                      CCAP0L = CCPA_tmp[0];
+ 144   4                      CCAP0H = CCPA_tmp[0] >> 8;
+ 145   4                      impluse_holding[0] = YES; 
+ 146   4                  }
+ 147   3              }
+ 148   2              else
+ 149   2                  switch_off(CCP0);
+ 150   2      
+ 151   2          }
+ 152   1          if(CCF1)       //PCA模块1中断
+ 153   1          {
+ 154   2              CCF1 = 0;       //清PCA模块2中断标志
+ 155   2              if(calibrated_phase_delay[1])
+ 156   2              {
+ 157   3                  if(impluse_holding[1])
+ 158   3                  {
+ 159   4                     switch_off(CCP1);
+ 160   4                    impluse_holding[1] = NO; 
+ 161   4                  }
+ 162   3                  else
+ 163   3                  {
+ 164   4                      switch_on(CCP1);
+ 165   4                      CCPA_tmp[1]  = CCPA_tmp[1] +  PHASE_WIDTH;
+ 166   4                      CCAP1L = CCPA_tmp[1] ;
+ 167   4                      CCAP1H = CCPA_tmp[1]  >> 8;
+ 168   4                      impluse_holding[1] = YES; 
+ 169   4                  }
+ 170   3              }
+ 171   2              else
+ 172   2                  switch_off(CCP1);
+ 173   2          }
+ 174   1          if(CCF2)       //PCA模块2中断
+ 175   1          {
+ 176   2              CCF2 = 0;       //清PCA模块2中断标志
+ 177   2              if(calibrated_phase_delay[2])
+ 178   2              {
+ 179   3                  if(impluse_holding[2])
+C51 COMPILER V9.52.0.0   SYNC                                                              10/11/2015 15:46:03 PAGE 4   
+
+ 180   3                  {
+ 181   4                     switch_off(CCP2);
+ 182   4                     impluse_holding[2] = NO; 
+ 183   4                  }
+ 184   3                  else
+ 185   3                  {
+ 186   4                      switch_on(CCP2);
+ 187   4                      CCPA_tmp[2]  = CCPA_tmp[2]  +  PHASE_WIDTH;
+ 188   4                      CCAP2L = CCPA_tmp[2] ;
+ 189   4                      CCAP2H = CCPA_tmp[2]  >> 8;
+ 190   4                      impluse_holding[2] = YES; 
+ 191   4                  }
+ 192   3              }
+ 193   2              else
+ 194   2                  switch_off(CCP2);
+ 195   2          }
+ 196   1      }
+ 197          
+ 198          static u8 io_status_per_ms_checker = 0;
+ 199          static u8 io_status_rf_per_ms = 0;
+ 200          
+ 201          void tm0_isr() interrupt 1 using 3
+ 202          {
+ 203   1            // 5ms old tick-tock 
+ 204   1          --counter_for_pca5ms;
+ 205   1          if (!counter_for_pca5ms) {
+ 206   2            INT_PROC |= TICK_DUTY;
+ 207   2            if (minute_count_down()) {
+ 208   3              INT_PROC |= MINUTE_DUTY;        
+ 209   3              //do_per_minute();
+ 210   3          }
+ 211   2            ++counter_for_cycle;
+ 212   2            counter_for_pca5ms = PCA5ms;
+ 213   2        }
+ 214   1      
+ 215   1        if (candidate_signal_tail_check) {
+ 216   2          --signal_ms_counter;
+ 217   2          if (LM567_STAT && signal_bit_counter < 8)
+ 218   2            ++high_counter_in_tail;
+ 219   2          
+ 220   2          if (!signal_ms_counter) {           // 1ms
+ 221   3            signal_ms_counter = SAMP_PER_MS;
+ 222   3            --signal_bit_counter;
+ 223   3            if (!signal_bit_counter) {          // 10ms / 1bit finish
+ 224   4              signal_bit_counter = SIG_WIDTH;
+ 225   4              signal_buffer_process();
+ 226   4            }
+ 227   3          }
+ 228   2        }
+ 229   1      
+ 230   1        // 4kHz new tick-tock
+ 231   1        if (candidate_signal_recieving) {
+ 232   2          --signal_ms_counter;
+ 233   2      
+ 234   2          push_back(io_status_per_ms, LM567_STAT);
+ 235   2          if (!signal_ms_counter) {
+ 236   3            // 1ms finish
+ 237   3            signal_ms_counter = SAMP_PER_MS;
+ 238   3            --signal_bit_counter;
+ 239   3      
+ 240   3            // ------------- check four io status in one ms ----------------
+ 241   3            io_status_per_ms_checker = io_status_per_ms << 1;
+C51 COMPILER V9.52.0.0   SYNC                                                              10/11/2015 15:46:03 PAGE 5   
+
+ 242   3            io_status_per_ms_checker ^= io_status_per_ms;
+ 243   3      
+ 244   3            io_status_rf_per_ms = 0;
+ 245   3            if (io_status_per_ms_checker & 0x02)
+ 246   3              ++io_status_rf_per_ms;
+ 247   3            if (io_status_per_ms_checker & 0x04)
+ 248   3              ++io_status_rf_per_ms;
+ 249   3            if (io_status_per_ms_checker & 0x08)
+ 250   3              ++io_status_rf_per_ms;
+ 251   3            if (io_status_per_ms_checker & 0x10)
+ 252   3              ++io_status_rf_per_ms;
+ 253   3      
+ 254   3            if (io_status_rf_per_ms > 2)
+ 255   3              abort_recieving();
+ 256   3      
+ 257   3            // ------------- check four io status in one ms ----------------
+ 258   3      
+ 259   3            if (signal_bit_counter == 7) {
+ 260   4              fall_counter_bit_take_account = true;
+ 261   4              fall_counter_while_bit = 0;
+ 262   4            }
+ 263   3            if (signal_bit_counter == 3) {
+ 264   4              fall_counter_bit_take_account = false;
+ 265   4            }
+ 266   3      
+ 267   3            push_back(io_status_per_bit, io_status_per_ms);
+ 268   3            io_status_per_ms = 0;
+ 269   3            if (!signal_bit_counter) {
+ 270   4              // 10ms / 1bit finish
+ 271   4              signal_bit_counter = SIG_WIDTH;
+ 272   4              --signal_length_counter;
+ 273   4      
+ 274   4              io_status_per_bit &= 0x78;
+ 275   4              if (io_status_per_bit && io_status_per_bit != 0x78 && fall_counter_while_bit) {
+ 276   5                abort_recieving();
+ 277   5              }
+ 278   4      
+ 279   4              push_back(signal_raw_data, io_status_per_bit);
+ 280   4              io_status_per_bit = 0;
+ 281   4              if (!signal_length_counter) {
+ 282   5                // 8bit finish
+ 283   5                start_check_candidate_tail();
+ 284   5              }
+ 285   4            }
+ 286   3          }
+ 287   2        }
+ 288   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    667    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     11    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+C51 COMPILER V9.52.0.0   SYNC                                                              10/11/2015 15:46:03 PAGE 6   
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

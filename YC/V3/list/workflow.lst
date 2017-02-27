@@ -1,0 +1,231 @@
+C51 COMPILER V9.52.0.0   WORKFLOW                                                          07/02/2016 11:26:43 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE WORKFLOW
+OBJECT MODULE PLACED IN .\list\workflow.obj
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE workflow.c LARGE OMF2 BROWSE DEBUG PRINT(.\list\workflow.lst) TABS(2) OBJEC
+                    -T(.\list\workflow.obj)
+
+line level    source
+
+   1          #include "workflow.h"
+   2          #include "task.h"
+   3          #include <stdio.h>
+   4          #include <string.h>
+   5          
+   6          s_workflow_t xdata simple_workflow[MAX_UART_SUPPORT];
+   7          workflow_t xdata *current_workflow[MAX_UART_SUPPORT];
+   8          workflow_t xdata *workflow_registration[WORKFLOW_ID_TOTAL];
+   9          
+  10          u8 xdata workflow_finish_duty_context = 0;
+  11          u8 xdata workflow_flow_duty_context = 0;
+  12          
+  13          void workflow_init() {
+  14   1        u8 i;
+  15   1        for (i = 0; i < MAX_UART_SUPPORT; ++i) {
+  16   2          current_workflow[i] = NULL;
+  17   2        }
+  18   1      
+  19   1        for (i = 0; i< MAX_UART_SUPPORT; ++i) {
+  20   2          simple_workflow[i].uart_id = i;
+  21   2          simple_workflow[i].processing = 0;
+  22   2          simple_workflow[i].status = empty;
+  23   2          simple_workflow[i].go = NULL;
+  24   2          simple_workflow[i].callback = NULL;
+  25   2        }
+  26   1      }
+  27          
+  28          void start_workflow(workflow_t xdata *wf) {
+  29   1        if (wf == NULL) return;
+  30   1        printf("workflow [%bu] on COM%bu\r\n", (u8) wf->workflow_id, (u8) wf->uart_id + 1);
+  31   1        if (wf->uart_id >= MAX_UART_SUPPORT) return; 
+  32   1        printf("Loading workflow [%bu] ... \r\n", (u8) wf->workflow_id);
+  33   1        current_workflow[wf->uart_id] = wf;
+  34   1        // clean context
+  35   1        workflow_finish_duty_context &= ~(1<<wf->workflow_id);
+  36   1        workflow_flow_duty_context &= ~(1<<wf->workflow_id);
+  37   1      
+  38   1        current_workflow[wf->uart_id]->start();
+  39   1      }
+  40          
+  41          static void finish_workflow(workflow_t xdata *wf) {
+  42   1        if (wf == NULL) return;
+  43   1        if (wf->uart_id >= MAX_UART_SUPPORT) return; 
+  44   1        printf("Finishing workflow [%bu] ... \r\n", (u8) wf->workflow_id);
+  45   1        current_workflow[wf->uart_id] = NULL;
+  46   1        wf->task_id = TASK_ID_NONE;
+  47   1        wf->processing = 0;
+  48   1        if (wf->clean) {
+  49   2          wf->clean();
+  50   2        }
+  51   1      }
+  52          
+  53          void finish_workflow_before_next_flow(u8 wf_id) {
+  54   1        workflow_flow_duty_context &= ~(1<<wf_id);
+C51 COMPILER V9.52.0.0   WORKFLOW                                                          07/02/2016 11:26:43 PAGE 2   
+
+  55   1        workflow_finish_duty_context |= (1<<wf_id);
+  56   1        call_for_duty(WF_FINISH_DUTY);
+  57   1      }
+  58          
+  59          void continue_workflow_at_next_round(u8 wf_id) {
+  60   1        workflow_flow_duty_context |= (1<<wf_id);
+  61   1        call_for_duty(WF_FLOW_DUTY);
+  62   1      }
+  63          
+  64          
+  65          void start_simple_workflow(u8 uart_id, s_wf_go go, s_wf_cb callback) {
+  66   1        if (uart_id < MAX_UART_SUPPORT) {
+  67   2          s_workflow_t xdata *wf = &simple_workflow[uart_id];
+  68   2          if (wf->status != empty) return;
+  69   2      
+  70   2          wf->status = wait_for_start;
+  71   2          wf->processing = SIMPLE_WORKFLOW_TIMEOUT;
+  72   2          wf->go = go;
+  73   2          wf->callback = callback;
+  74   2          call_for_duty(S_WF_DUTY);
+  75   2        }
+  76   1        
+  77   1      }
+  78          
+  79          static bool workflow_check_timeout(workflow_t xdata *, bool auto_finish);
+  80          static bool simple_workflow_check_timeout(s_workflow_t xdata *);
+  81          
+  82          void wf_finish_duty_task() {
+  83   1        u8 i;
+  84   1          for (i = 0; i < WORKFLOW_ID_TOTAL; ++i) {
+  85   2            if (workflow_finish_duty_context & (1<<i)) {
+  86   3              workflow_t xdata *wf = workflow_registration[i];
+  87   3            finish_workflow(wf);
+  88   3              workflow_finish_duty_context &= ~(1<<i);
+  89   3            }
+  90   2          }
+  91   1      }
+  92          
+  93          void wf_flow_duty_task() {
+  94   1        u8 i;
+  95   1        for (i = 0; i < WORKFLOW_ID_TOTAL; ++i) {
+  96   2            if (workflow_flow_duty_context & (1<<i)) {
+  97   3              workflow_t xdata *wf = workflow_registration[i];
+  98   3              u8 task_id = wf->task_id;
+  99   3              wf->go(task_id);
+ 100   3              workflow_flow_duty_context &= ~(1<<i);
+ 101   3            }
+ 102   2          }
+ 103   1      }
+ 104          
+ 105          void wf_chk_timeout_duty_task() {
+ 106   1        u8 i;
+ 107   1        for (i = 0; i < WORKFLOW_ID_TOTAL; ++i) {
+ 108   2              workflow_check_timeout(workflow_registration[i], true);
+ 109   2          }
+ 110   1      }
+ 111          
+ 112          void s_wf_duty_task() {
+ 113   1        u8 i;
+ 114   1        s_workflow_t xdata *wf;
+ 115   1        for (i = 0; i < MAX_UART_SUPPORT; ++i) {
+ 116   2      
+C51 COMPILER V9.52.0.0   WORKFLOW                                                          07/02/2016 11:26:43 PAGE 3   
+
+ 117   2          wf = &simple_workflow[i];
+ 118   2          if (wf->status == empty) continue;
+ 119   2          if (wf->status == processing) continue;
+ 120   2      
+ 121   2          if (wf->status == wait_for_start) {
+ 122   3            if (wf->go) {
+ 123   4              wf->go();
+ 124   4              wf->status = processing;
+ 125   4              // no need to call_for_duty
+ 126   4            }
+ 127   3            else
+ 128   3              wf->status = wait_for_finish;
+ 129   3              // no need to call_for_duty
+ 130   3          }
+ 131   2      
+ 132   2          if (wf->status == wait_for_finish) {
+ 133   3            wf->status = empty;
+ 134   3            wf->processing = 0;
+ 135   3            wf->go = NULL;
+ 136   3            wf->callback = NULL;
+ 137   3          }
+ 138   2        }
+ 139   1      }
+ 140          
+ 141          void s_wf_chk_timeout_duty_task() {
+ 142   1        u8 i;
+ 143   1        for (i = 0; i < MAX_UART_SUPPORT; ++i) {
+ 144   2          simple_workflow_check_timeout(&simple_workflow[i]);
+ 145   2        }
+ 146   1      
+ 147   1      }
+ 148          
+ 149          static bool simple_workflow_check_timeout(s_workflow_t xdata *wf) {
+ 150   1        // 
+ 151   1        if (wf->status == empty || 
+ 152   1          wf->status == wait_for_start ||
+ 153   1          wf->status == wait_for_finish) 
+ 154   1          return false;
+ 155   1      
+ 156   1        // loading 
+ 157   1        if (wf->go == NULL || wf->callback == NULL) return false;
+ 158   1        // processing
+ 159   1        if (wf->status == processing && wf->processing && !--wf->processing) {
+ 160   2          wf->status = wait_for_finish;
+ 161   2          call_for_duty(S_WF_DUTY);
+ 162   2          return true;
+ 163   2        }
+ 164   1      
+ 165   1        return false;
+ 166   1      }
+ 167          
+ 168          static bool workflow_check_timeout(workflow_t xdata *wf, bool auto_finish) {
+ 169   1        // NULL pt check
+ 170   1        if (wf == NULL) return false;
+ 171   1        // wf check
+ 172   1        if (wf->uart_id >= MAX_UART_SUPPORT) return false;
+ 173   1        // No workflow processing at all
+ 174   1        if (current_workflow[wf->uart_id] == NULL) return false;
+ 175   1        // Current workflow is not what we checking
+ 176   1        if (current_workflow[wf->uart_id]->workflow_id != wf->workflow_id) return false;
+ 177   1        // process count down to zero 
+ 178   1        if (wf->processing && !--wf->processing) {
+C51 COMPILER V9.52.0.0   WORKFLOW                                                          07/02/2016 11:26:43 PAGE 4   
+
+ 179   2          printf("workflow [%bu] timeout\r\n", (u8) wf->workflow_id);
+ 180   2          if (auto_finish)
+ 181   2            finish_workflow_before_next_flow(wf->workflow_id);
+ 182   2      
+ 183   2          if (wf->timeout)
+ 184   2            wf->timeout();
+ 185   2          return true;
+ 186   2        }
+ 187   1        return false;
+ 188   1      }
+ 189          
+ 190          bool workflow_check_response_full(char xdata *resp, char *expect) {
+ 191   1        return strcmp(resp, expect) == 0;
+ 192   1      }
+ 193          
+ 194          bool workflow_check_response_prefix(char xdata *resp, char *expect_prefix) {
+ 195   1        int expect_prefix_size = strlen(expect_prefix);
+ 196   1        return strncmp(resp, expect_prefix, expect_prefix_size) == 0;
+ 197   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1628    ----
+   CONSTANT SIZE    =    114    ----
+   XDATA SIZE       =     26      32
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,166 @@
+C51 COMPILER V9.52.0.0   ENTANG                                                            01/18/2016 20:03:24 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE ENTANG
+OBJECT MODULE PLACED IN entang.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE entang.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "entang.h"
+   2          #include "ble.h"
+   3          #include "i2c.h"
+   4          #include "utils.h"
+   5          #include "stc15wxxxx.h"
+   6          
+   7          /***********************************************************************************
+   8           * Function
+   9           ***********************************************************************************/
+  10          void Delay1ms()     //@24.000MHz
+  11          {
+  12   1          unsigned char i, j;
+  13   1      
+  14   1          i = 24;
+  15   1          j = 85;
+  16   1          do
+  17   1          {
+  18   2              while (--j);
+  19   2          } while (--i);
+  20   1      }
+  21          
+  22          
+  23          void ENTANG_A_delay_ms(unsigned char n)
+  24          {
+  25   1          unsigned char i;
+  26   1          for(i = 0; i < n; i++)
+  27   1              Delay1ms();
+  28   1      }
+  29          
+  30          
+  31          unsigned char ENTANG_A_init(unsigned char *ENTANG_A_user_key_password, unsigned char *key_in)
+  32          {
+  33   1          unsigned char error_code;
+  34   1          unsigned char tx_data[16];
+  35   1          unsigned char sub_addr;
+  36   1      
+  37   1          // ENTANG-A Chip Software Reset
+  38   1          tx_data[0] = 0x01;
+  39   1          error_code = _i2c_write(DEV_ADDR, CMD_RESET, tx_data, 1);
+  40   1          ENTANG_A_delay_ms(20);
+  41   1      
+  42   1          //For Final Key Generation
+  43   1          sub_addr = CMD_USER_KEY_SET;
+  44   1          error_code = _i2c_write(DEV_ADDR, sub_addr, ENTANG_A_user_key_password, 4);
+  45   1          if (error_code) 
+  46   1              return error_code;
+  47   1      
+  48   1          tx_data[0] = 0x00;
+  49   1          error_code = _i2c_write(DEV_ADDR, CMD_MODE0, tx_data, 1);
+  50   1          if ( error_code ) 
+  51   1              return error_code;
+  52   1          ENTANG_A_delay_ms(1);
+  53   1      
+  54   1          // ENTANG-A Ready
+  55   1          tx_data[0] = 0x08;
+C51 COMPILER V9.52.0.0   ENTANG                                                            01/18/2016 20:03:24 PAGE 2   
+
+  56   1          error_code = _i2c_write(DEV_ADDR, CMD_MODE1, tx_data, 1);
+  57   1          if ( error_code ) 
+  58   1              return error_code;
+  59   1          ENTANG_A_delay_ms(5);
+  60   1      
+  61   1      
+  62   1          error_code = _i2c_read (DEV_ADDR, CMD_AES_ENC, key_in, 16);
+  63   1          return ERROR_CODE_TRUE;
+  64   1      }
+  65          
+  66          
+  67          void ENTANG_key_init()
+  68          {
+  69   1          u8 user_password[4], key_init[16];
+  70   1          Read_Password(user_password, 0, 3);
+  71   1          ENTANG_A_init(user_password, key_init);
+  72   1      }
+  73          
+  74          
+  75          unsigned char ENTANG_A_enc(unsigned char *pt, unsigned char *ct)
+  76          {
+  77   1          unsigned char error_code;
+  78   1          unsigned char tx_data[16];
+  79   1          unsigned char sub_addr;
+  80   1      
+  81   1          sub_addr = CMD_MODE0;
+  82   1          tx_data[0] = 0x00;
+  83   1          error_code = _i2c_write(DEV_ADDR, sub_addr, tx_data, 1);
+  84   1      
+  85   1          tx_data[0] = 0x08;
+  86   1          error_code = _i2c_write(DEV_ADDR, CMD_MODE1, tx_data, 1);
+  87   1          if ( error_code ) 
+  88   1              return error_code;
+  89   1          ENTANG_A_delay_ms(5);
+  90   1      
+  91   1          // Operating AES128 Engine - ENTANG
+  92   1          sub_addr = CMD_AES_ENC;   
+  93   1          error_code = _i2c_write(DEV_ADDR, sub_addr, pt, 16);
+  94   1          if ( error_code ) 
+  95   1              return error_code;
+  96   1          ENTANG_A_delay_ms(5);
+  97   1      
+  98   1          error_code = _i2c_read (DEV_ADDR, sub_addr, ct, 16);
+  99   1          if ( error_code ) 
+ 100   1              return error_code;
+ 101   1          return ERROR_CODE_TRUE;
+ 102   1      
+ 103   1      }
+ 104          
+ 105          
+ 106          unsigned char ENTANG_A_dec(unsigned char *pt, unsigned char *ct)
+ 107          {
+ 108   1          unsigned char error_code;
+ 109   1          unsigned char tx_data[16];
+ 110   1          unsigned char sub_addr;
+ 111   1      
+ 112   1          sub_addr = CMD_MODE0;
+ 113   1          tx_data[0] = 0x04;  // Decryption Mode Enable
+ 114   1          error_code = _i2c_write(DEV_ADDR, sub_addr, tx_data, 1);
+ 115   1      
+ 116   1          tx_data[0] = 0x08;
+ 117   1          error_code = _i2c_write(DEV_ADDR, CMD_MODE1, tx_data, 1);
+C51 COMPILER V9.52.0.0   ENTANG                                                            01/18/2016 20:03:24 PAGE 3   
+
+ 118   1          if ( error_code ) 
+ 119   1              return error_code;
+ 120   1          ENTANG_A_delay_ms(5);
+ 121   1      
+ 122   1      
+ 123   1          sub_addr = CMD_AES_DEC;
+ 124   1          error_code = _i2c_write(DEV_ADDR, sub_addr, pt, 16);
+ 125   1          if (error_code) 
+ 126   1              return error_code;
+ 127   1          ENTANG_A_delay_ms(5);
+ 128   1      
+ 129   1          error_code = _i2c_read (DEV_ADDR, sub_addr, ct, 16);
+ 130   1          if ( error_code ) 
+ 131   1            return error_code;
+ 132   1          return ERROR_CODE_TRUE;
+ 133   1      }
+ 134          
+ 135          // eof
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    553    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      88
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

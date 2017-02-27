@@ -1,0 +1,319 @@
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        12/27/2016 13:09:27 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE JL17467PQW
+OBJECT MODULE PLACED IN jl17467pqw.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\C51.EXE jl17467pqw.c DEBUG OBJECTEXTEND TABS(2)
+
+line level    source
+
+   1          # include "jl17467pqw.h"
+   2          # include "share.h"
+   3          # include "adc.h"
+   4          
+   5          #define FIRST_NOT_DISPLAY  10
+   6          
+   7          static code u8 const digit_code_line_location[17] ={
+   8            // 1, 2, 3, 4, 5, 6, 7,  8,  9, 10, 11, 12, 13, 14, 15, 16, 17
+   9               2, 3, 4, 5, 6, 7, 8, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9   // ABCDEFG
+  10          };
+  11          
+  12          static code u8 const digit_code_column_location[7][17] = {
+  13            // 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17
+  14              {7, 7, 7, 7, 7, 7, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},     // A
+  15              {6, 6, 6, 6, 6, 6, 6, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},     // B
+  16              {5, 5, 5, 5, 5, 5, 5, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2},     // C
+  17              {4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},     // D 
+  18              {1, 1, 1, 1, 1, 1, 1, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7},     // E
+  19              {3, 3, 3, 3, 3, 3, 3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5},     // F 
+  20              {2, 2, 2, 2, 2, 2, 2, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6}      // G
+  21          };
+  22          
+  23          // GFEDCBA
+  24          static code u8 const digit_transfer_code[11] = {
+  25            //   0,    1,    2,    3,    4,    5,    6,    7,    8,    9,  FIRST_NOT_DISPLAY
+  26              0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F, 0x00
+  27          };
+  28          
+  29          
+  30          
+  31          static void jt17467pqw_set_digit(const u8 digit, const u8 id)
+  32          {
+  33   1        u8 flag;
+  34   1        u8 mask = 0x01, t_code = digit_transfer_code[digit];
+  35   1        u8 iterator;
+  36   1        for (iterator = 0; iterator < 7; ++iterator) {
+  37   2            flag = t_code & mask;
+  38   2            set(flag, digit_code_line_location[id-1], digit_code_column_location[iterator][id-1]);
+  39   2            t_code >>= 1;
+  40   2          }
+  41   1      }
+  42          
+  43          
+  44          // 36v
+  45          //static code u8 const battery_level[4] ={32,  34,  36,  38};
+  46          // 48v
+  47          static code u8 const battery_level[4] ={42,  44,  47,  49};
+  48          
+  49          static void jt17467pqw_set_battery_level(const u8 level)
+  50          {
+  51   1        if(level == 1)
+  52   1        {
+  53   2          jt17467pqw_set_battery_level_1(time_colon_icon);
+  54   2          jt17467pqw_set_battery_level_2(0);
+  55   2          jt17467pqw_set_battery_level_3(0);
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        12/27/2016 13:09:27 PAGE 2   
+
+  56   2          jt17467pqw_set_battery_level_4(0);
+  57   2          jt17467pqw_set_battery_level_5(0);
+  58   2        }
+  59   1        else
+  60   1        {
+  61   2          jt17467pqw_set_battery_level_1(1);
+  62   2          jt17467pqw_set_battery_level_2(1);
+  63   2          jt17467pqw_set_battery_level_3(level < 3 ? 0 : 1);
+  64   2          jt17467pqw_set_battery_level_4(level < 4 ? 0 : 1);
+  65   2          jt17467pqw_set_battery_level_5(level < 5 ? 0 : 1);
+  66   2        }
+  67   1      }
+  68          
+  69          void jt17467pqw_set_battery(const u8 power)
+  70          {
+  71   1        jt17467pqw_set_display_battery(1);
+  72   1        if(power <= battery_level[0]){
+  73   2          jt17467pqw_set_battery_level(1);
+  74   2        } else if(power > battery_level[0] && power <= battery_level[1]){
+  75   2          jt17467pqw_set_battery_level(2);
+  76   2        } else if(power > battery_level[1] && power <= battery_level[2]){
+  77   2          jt17467pqw_set_battery_level(3);
+  78   2        } else if(power > battery_level[2] && power <= battery_level[3]){
+  79   2          jt17467pqw_set_battery_level(4);
+  80   2        } else if(power > battery_level[3]){
+  81   2          jt17467pqw_set_battery_level(5);
+  82   2        }
+  83   1      }
+  84          
+  85          static code u16 const power_level[6] ={0x0005,  0x0114,  0x0228,  0x033C,  0x0450, 0x0564};
+  86          
+  87          static void jt17467pqw_set_power_level(const u8 level)
+  88          {
+  89   1          jt17467pqw_set_power_level_1(level < 1 ? 0 : 1);
+  90   1          jt17467pqw_set_power_level_2(level < 2 ? 0 : 1);
+  91   1          jt17467pqw_set_power_level_3(level < 3 ? 0 : 1);
+  92   1          jt17467pqw_set_power_level_4(level < 4 ? 0 : 1);
+  93   1          jt17467pqw_set_power_level_5(level < 5 ? 0 : 1);
+  94   1          jt17467pqw_set_power_level_6(level < 6 ? 0 : 1);
+  95   1      }
+  96          
+  97          void jt17467pqw_set_power(const u16 power)
+  98          {
+  99   1        jt17467pqw_set_display_power(1);
+ 100   1        if(power < power_level[0]){
+ 101   2          jt17467pqw_set_power_level(0);
+ 102   2        } else if(power >= power_level[0] && power < power_level[1]){
+ 103   2          jt17467pqw_set_power_level(1);
+ 104   2        } else if(power >= power_level[1] && power < power_level[2]){
+ 105   2          jt17467pqw_set_power_level(2);
+ 106   2        } else if(power >= power_level[2] && power < power_level[3]){
+ 107   2          jt17467pqw_set_power_level(3);
+ 108   2        } else if(power >= power_level[3] && power < power_level[4]){
+ 109   2          jt17467pqw_set_power_level(4);
+ 110   2        } else if(power >= power_level[4] && power < power_level[5]){
+ 111   2          jt17467pqw_set_power_level(5);
+ 112   2        } else if(power >= power_level[5]){
+ 113   2          jt17467pqw_set_power_level(6);
+ 114   2        }
+ 115   1      }
+ 116          
+ 117          
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        12/27/2016 13:09:27 PAGE 3   
+
+ 118          // 暂时先考虑KM/h
+ 119          void jt17467pqw_set_speed(const u16 speed)
+ 120          {
+ 121   1        // jt17467pqw_set_speed_unit_KMph(1);
+ 122   1        // if(speed < 100)
+ 123   1        //   jt17467pqw_set_digit(FIRST_NOT_DISPLAY, SPEED_DECADE_ID);
+ 124   1        // else
+ 125   1        //   jt17467pqw_set_digit(speed/100, SPEED_DECADE_ID);
+ 126   1        // jt17467pqw_set_digit((speed%100/10) , SPEED_UNIT_ID);
+ 127   1        // jt17467pqw_set_speed_decimal_point(1);
+ 128   1        // jt17467pqw_set_digit(speed%10, SPEED_DECIMAL_ID);
+ 129   1        u32 speed_mile = speed;
+ 130   1        speed_mile = (speed_mile * 62) / 100;
+ 131   1        jt17467pqw_set_speed_unit_mps(1);
+ 132   1        if(speed_mile < 100)
+ 133   1          jt17467pqw_set_digit(FIRST_NOT_DISPLAY, SPEED_DECADE_ID);
+ 134   1        else
+ 135   1          jt17467pqw_set_digit(speed_mile/100, SPEED_DECADE_ID);
+ 136   1        jt17467pqw_set_digit((speed_mile%100/10) , SPEED_UNIT_ID);
+ 137   1        jt17467pqw_set_speed_decimal_point(1);
+ 138   1        jt17467pqw_set_digit(speed_mile%10, SPEED_DECIMAL_ID);
+ 139   1      
+ 140   1      
+ 141   1      }
+ 142          
+ 143          
+ 144          void jt17467pqw_set_time(const time_t time_display)
+ 145          {
+ 146   1        jt17467pqw_set_digit(time_display.hour/10, TIME_HOUR_DECADE_ID);
+ 147   1        jt17467pqw_set_digit(time_display.hour%10, TIME_HOUR_UNIT_ID);
+ 148   1        // 闪烁
+ 149   1        jt17467pqw_set_time_colon(time_colon_icon);
+ 150   1        jt17467pqw_set_digit(time_display.minute/10, TIME_MINUTE_DECADE_ID);
+ 151   1        jt17467pqw_set_digit(time_display.minute%10, TIME_MINUTE_UNIT_ID);
+ 152   1      }
+ 153          
+ 154          // 暂时先考虑摄氏度
+ 155          void jt17467pqw_set_temperature(const u8 temperature)
+ 156          {
+ 157   1        u8 temperature_value;
+ 158   1      
+ 159   1        jt17467pqw_set_temperature_unit_celsius(1);
+ 160   1       // jt17467pqw_set_temperature_unit_fahrenheit(1);
+ 161   1      
+ 162   1      
+ 163   1        if(temperature < TEMPERATURE_ZERO_VALUE)
+ 164   1        {
+ 165   2          temperature_value = TEMPERATURE_ZERO_VALUE - temperature;
+ 166   2          jt17467pqw_set_temperature_sign(1);
+ 167   2      
+ 168   2        }
+ 169   1        else
+ 170   1        {
+ 171   2          temperature_value = temperature - TEMPERATURE_ZERO_VALUE;
+ 172   2          jt17467pqw_set_temperature_sign(0);
+ 173   2        }
+ 174   1      
+ 175   1      
+ 176   1        if(temperature >= TEMPERATURE_BOIL_VALUE || temperature <= TEMPERATURE_NEGATIVE_BOIL_VALUE)
+ 177   1        {
+ 178   2          jt17467pqw_set_temperature_greater_than_hundred(1);
+ 179   2          temperature_value = temperature_value - 100;
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        12/27/2016 13:09:27 PAGE 4   
+
+ 180   2        }
+ 181   1        else
+ 182   1        {
+ 183   2          jt17467pqw_set_temperature_greater_than_hundred(0);
+ 184   2          if(temperature_value < 10)
+ 185   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY , TEMPERATURE_DECADE_ID);
+ 186   2          else
+ 187   2            jt17467pqw_set_digit(temperature_value/10 , TEMPERATURE_DECADE_ID);
+ 188   2        }
+ 189   1      
+ 190   1        
+ 191   1        jt17467pqw_set_digit(temperature_value%10 , TEMPERATURE_UNIT_ID);
+ 192   1      
+ 193   1      }
+ 194          
+ 195          
+ 196          
+ 197          // 暂时先考虑KM
+ 198          void jt17467pqw_set_mileage(u16 mileage)
+ 199          {
+ 200   1        //jt17467pqw_set_milegae_unit_KM(1);
+ 201   1        // if(mileage / 1000)
+ 202   1        //   mileage = mileage - (mileage / 1000 * 1000);
+ 203   1      
+ 204   1        // if(mileage < 100)
+ 205   1        //   jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_DECADE_ID);
+ 206   1        // else
+ 207   1        //   jt17467pqw_set_digit(mileage/100, MILEAGE_DECADE_ID);
+ 208   1        // jt17467pqw_set_digit(mileage % 100 / 10, MILEAGE_UNIT_ID);
+ 209   1        // jt17467pqw_set_mileage_decimal_point(1);
+ 210   1        // jt17467pqw_set_digit(mileage % 10, MILEAGE_DECIMAL_ID);
+ 211   1        u32 mileage_mile = mileage * 62 / 100;
+ 212   1        jt17467pqw_set_mileage_unit_mile(1);
+ 213   1        
+ 214   1        if(mileage_mile / 1000)
+ 215   1          mileage_mile = mileage_mile - (mileage_mile / 1000 * 1000);
+ 216   1      
+ 217   1        if(mileage_mile < 100)
+ 218   1          jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_DECADE_ID);
+ 219   1        else
+ 220   1          jt17467pqw_set_digit(mileage_mile/100, MILEAGE_DECADE_ID);
+ 221   1        jt17467pqw_set_digit(mileage_mile % 100 / 10, MILEAGE_UNIT_ID);
+ 222   1        jt17467pqw_set_mileage_decimal_point(1);
+ 223   1        jt17467pqw_set_digit(mileage_mile % 10, MILEAGE_DECIMAL_ID);
+ 224   1      }
+ 225          
+ 226          
+ 227          // 暂时先考虑KM
+ 228          void jt17467pqw_set_mileage_total(const u32 mileage_total)
+ 229          {
+ 230   1        // jt17467pqw_set_mileage_total_unit_KM(1);
+ 231   1        // if(mileage_total < 100000)
+ 232   1        // {
+ 233   1        //   if(mileage_total < 10000)
+ 234   1        //     jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_THOUSAND_ID);
+ 235   1        //   else
+ 236   1        //     jt17467pqw_set_digit(mileage_total/10000 , MILEAGE_TOTAL_THOUSAND_ID);
+ 237   1        //   if(mileage_total < 1000)
+ 238   1        //     jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_HUNDRED_ID);
+ 239   1        //   else
+ 240   1        //     jt17467pqw_set_digit(mileage_total % 10000 / 1000, MILEAGE_TOTAL_HUNDRED_ID);
+ 241   1        //   if(mileage_total < 100)
+C51 COMPILER V9.52.0.0   JL17467PQW                                                        12/27/2016 13:09:27 PAGE 5   
+
+ 242   1        //     jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_DECADE_ID);
+ 243   1        //   else
+ 244   1        //     jt17467pqw_set_digit(mileage_total % 1000 / 100, MILEAGE_TOTAL_DECADE_ID); 
+ 245   1        //   jt17467pqw_set_digit(mileage_total % 100 / 10 , MILEAGE_TOTAL_UNIT_ID);
+ 246   1        //   jt17467pqw_set_mileage_total_decimal_point(1);
+ 247   1        //   jt17467pqw_set_digit(mileage_total % 10 , MILEAGE_TOTAL_DECIMAL_ID);
+ 248   1        // }
+ 249   1        // else
+ 250   1        // {
+ 251   1        //   jt17467pqw_set_digit(mileage_total/100000 , MILEAGE_TOTAL_THOUSAND_ID);
+ 252   1        //   jt17467pqw_set_digit(mileage_total % 100000 / 10000, MILEAGE_TOTAL_HUNDRED_ID);
+ 253   1        //   jt17467pqw_set_digit(mileage_total % 10000 / 1000, MILEAGE_TOTAL_DECADE_ID); 
+ 254   1        //   jt17467pqw_set_digit(mileage_total % 1000 / 100 , MILEAGE_TOTAL_UNIT_ID);
+ 255   1        //   jt17467pqw_set_mileage_total_decimal_point(0);
+ 256   1        //   jt17467pqw_set_digit(mileage_total % 100 / 10 , MILEAGE_TOTAL_DECIMAL_ID);
+ 257   1        // }
+ 258   1      
+ 259   1        u32 mileage_total_mile =  mileage_total * 62 / 100;
+ 260   1        jt17467pqw_set_mileage_total_unit_mile(1);
+ 261   1        if(mileage_total_mile < 100000)
+ 262   1        {
+ 263   2          if(mileage_total_mile < 10000)
+ 264   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_THOUSAND_ID);
+ 265   2          else
+ 266   2            jt17467pqw_set_digit(mileage_total_mile/10000 , MILEAGE_TOTAL_THOUSAND_ID);
+ 267   2          if(mileage_total_mile < 1000)
+ 268   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_HUNDRED_ID);
+ 269   2          else
+ 270   2            jt17467pqw_set_digit(mileage_total_mile % 10000 / 1000, MILEAGE_TOTAL_HUNDRED_ID);
+ 271   2          if(mileage_total_mile < 100)
+ 272   2            jt17467pqw_set_digit(FIRST_NOT_DISPLAY, MILEAGE_TOTAL_DECADE_ID);
+ 273   2          else
+ 274   2            jt17467pqw_set_digit(mileage_total_mile % 1000 / 100, MILEAGE_TOTAL_DECADE_ID); 
+ 275   2          jt17467pqw_set_digit(mileage_total_mile % 100 / 10 , MILEAGE_TOTAL_UNIT_ID);
+ 276   2          jt17467pqw_set_mileage_total_decimal_point(1);
+ 277   2          jt17467pqw_set_digit(mileage_total_mile % 10 , MILEAGE_TOTAL_DECIMAL_ID);
+ 278   2        }
+ 279   1        else
+ 280   1        {
+ 281   2          jt17467pqw_set_digit(mileage_total_mile/100000 , MILEAGE_TOTAL_THOUSAND_ID);
+ 282   2          jt17467pqw_set_digit(mileage_total_mile % 100000 / 10000, MILEAGE_TOTAL_HUNDRED_ID);
+ 283   2          jt17467pqw_set_digit(mileage_total_mile % 10000 / 1000, MILEAGE_TOTAL_DECADE_ID); 
+ 284   2          jt17467pqw_set_digit(mileage_total_mile % 1000 / 100 , MILEAGE_TOTAL_UNIT_ID);
+ 285   2          jt17467pqw_set_mileage_total_decimal_point(0);
+ 286   2          jt17467pqw_set_digit(mileage_total_mile % 100 / 10 , MILEAGE_TOTAL_DECIMAL_ID);
+ 287   2        }
+ 288   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1768    ----
+   CONSTANT SIZE    =    163    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----      31
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

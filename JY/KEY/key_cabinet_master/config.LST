@@ -1,0 +1,95 @@
+C51 COMPILER V9.52.0.0   CONFIG                                                            02/29/2016 20:28:51 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE CONFIG
+OBJECT MODULE PLACED IN config.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE config.c LARGE OMF2 BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          # include "config.h"
+   2          # include "utils.h"
+   3          void driver_high_pin(u8 pin)
+   4          {
+   5   1        if(pin == 29){
+   6   2          high_pin(29);
+   7   2        }else if(pin == 30){
+   8   2          high_pin(30);
+   9   2        }
+  10   1      }
+  11          void driver_low_pin(u8 pin)
+  12          {
+  13   1        if(pin == 29){
+  14   2          low_pin(29);
+  15   2        }else if(pin == 30){
+  16   2          low_pin(30);
+  17   2        }
+  18   1      }
+  19          
+  20          void driver_io_init()
+  21          {
+  22   1          // // P00~P04
+  23   1          // push_pull(0, 0x01);
+  24   1          // push_pull(0, 0x02);
+  25   1          // push_pull(0, 0x04);
+  26   1          // push_pull(0, 0x08);
+  27   1          // push_pull(0, 0x10);
+  28   1      
+  29   1          // // P20~P27
+  30   1          // push_pull(2, 0x01);
+  31   1          // push_pull(2, 0x02);
+  32   1          // push_pull(2, 0x04);
+  33   1          // push_pull(2, 0x08);
+  34   1          // push_pull(2, 0x10);
+  35   1          // push_pull(2, 0x20);
+  36   1          // push_pull(2, 0x40);
+  37   1          // push_pull(2, 0x80);
+  38   1      
+  39   1          // // P35
+  40   1          // push_pull(3, 0x20);
+  41   1          // // P41~P46
+  42   1          // push_pull(4, 0x02);
+  43   1          // push_pull(4, 0x04);
+  44   1          // push_pull(4, 0x08);
+  45   1          // push_pull(4, 0x10);
+  46   1          // push_pull(4, 0x20);
+  47   1          // push_pull(4, 0x40);
+  48   1      
+  49   1          // // P51~P52
+  50   1          // push_pull(5, 0x02);
+  51   1          // push_pull(5, 0x04);
+  52   1      
+  53   1          // // P70~P77
+  54   1          // push_pull(7, 0x01);
+  55   1          // push_pull(7, 0x02);
+C51 COMPILER V9.52.0.0   CONFIG                                                            02/29/2016 20:28:51 PAGE 2   
+
+  56   1          // push_pull(7, 0x04);
+  57   1          // push_pull(7, 0x08);
+  58   1          // push_pull(7, 0x10);
+  59   1          // push_pull(7, 0x20);
+  60   1          // push_pull(7, 0x40);
+  61   1          // push_pull(7, 0x80);
+  62   1          // P40
+  63   1          push_pull(4, 0x01);
+  64   1          // P64
+  65   1          push_pull(6, 0x10);
+  66   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     41    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,80 @@
+C51 COMPILER V9.52.0.0   ADC                                                               10/11/2015 15:46:03 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE ADC
+OBJECT MODULE PLACED IN adc.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE adc.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          #include "adc.h"
+   2          #include "shared.h"
+   3          #include "intrins.h"
+   4          
+   5          #define wait_adc_finish() while (!(ADC_CONTR & ADC_FLAG))   //等待ADC转换完成
+   6          #define adc_channel 1
+   7          #define current_adc_value ((ADC_RES << 2) | ADC_RESL)
+   8          
+   9          static u16 GetADCResult();
+  10          static u16 adc_period_max = 0;
+  11          
+  12          /*----------------------------
+  13          Get max in this period 
+  14          ----------------------------*/
+  15          u16 read_adc_period_max() {
+  16   1        return adc_period_max;
+  17   1      }
+  18          
+  19          // start new scan
+  20          void refresh_adc_period_max() {
+  21   1          adc_period_max = 0;
+  22   1      }
+  23          
+  24          void init_adc() {
+  25   1          P1ASF |= 0x02;                      // P1(ch) -> P1 ^ 1
+  26   1          low_at_bit(CLK_DIV, ADRJ);          // ADRJ = 0
+  27   1          ADC_RES = 0;                        // high 8 bit       
+  28   1          ADC_RESL = 0;                       // low 2 bit
+  29   1          ADC_CONTR = ADC_POWER | ADC_SPEED | adc_channel;
+  30   1      }
+  31          
+  32          void adc_sampling() {
+  33   1          u16 adc_value = GetADCResult();
+  34   1          if (adc_value > adc_period_max)
+  35   1              adc_period_max = adc_value;
+  36   1      }
+  37          
+  38          static u16 GetADCResult()
+  39          {
+  40   1          ADC_CONTR |= ADC_START;
+  41   1          
+  42   1          _nop_();                        
+  43   1          _nop_();
+  44   1          _nop_();
+  45   1          _nop_();
+  46   1          wait_adc_finish();              
+  47   1          ADC_CONTR &= ~ADC_FLAG;         
+  48   1          return current_adc_value;                 
+  49   1      }
+  50          
+  51          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     80    ----
+C51 COMPILER V9.52.0.0   ADC                                                               10/11/2015 15:46:03 PAGE 2   
+
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =      2    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

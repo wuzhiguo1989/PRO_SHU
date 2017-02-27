@@ -1,0 +1,6 @@
+"STARTUP.obj",
+"bk8000l.obj",
+"main.obj",
+"usart.obj" 
+TO "AT" 
+RAMSIZE(256) 

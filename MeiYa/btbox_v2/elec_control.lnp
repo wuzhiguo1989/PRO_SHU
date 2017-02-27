@@ -1,0 +1,11 @@
+"STARTUP.obj",
+"main.obj",
+"share.obj",
+"adc.obj",
+"sync.obj",
+"task.obj",
+"time.obj",
+"key.obj",
+"74hc595.obj" 
+TO "elec_control" 
+RAMSIZE(256) 

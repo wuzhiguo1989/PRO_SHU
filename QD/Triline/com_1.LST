@@ -1,0 +1,210 @@
+C51 COMPILER V9.52.0.0   COM_1                                                             10/11/2015 15:46:04 PAGE 1   
+
+
+C51 COMPILER V9.52.0.0, COMPILATION OF MODULE COM_1
+OBJECT MODULE PLACED IN com_1.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE com_1.c COMPACT OMF2 OPTIMIZE(9,SPEED) BROWSE DEBUG TABS(2)
+
+line level    source
+
+   1          /*  
+   2          * STC-ISP导入芯片信息至Keil
+   3          * 采用STC15W404AS系列
+   4          * 假定测试芯片的工作频率为18.432MHz
+   5          */
+   6          
+   7          #include "led.h"
+   8          #include "uart.h"
+   9          #include "sync.h"
+  10          #include "adc.h"
+  11          #include "display.h"
+  12          #include "shared.h"
+  13          #include "lm567.h"
+  14          #include "intrins.h"
+  15          
+  16          #define disable_all_interrupt() EA = 0
+  17          #define enable_all_interrupt() EA = 1
+  18          
+  19          static void init_system_component();
+  20          static void init_logic_params();
+  21          static void init_adc_amplifier();
+  22          static void adc_sampling_rest();
+  23          
+  24          #define IO_ADC    0x02  // P1.1
+  25          #define IO_LED1     0x20  // P5.5
+  26          #define IO_LED2   0x10  // P5.4
+  27          #define IO_LED3     0x01  // P1.0
+  28          #define IO_INT    0x04  // P3.2
+  29          #define IO_CODE   0x08  // P3.3
+  30          #define IO_SENSOR   0x04    // P1.2
+  31          
+  32          
+  33          void Delay1000ms()    //@18.432MHz
+  34          {
+  35   1        unsigned char i, j, k;
+  36   1      
+  37   1        _nop_();
+  38   1        _nop_();
+  39   1        i = 71;
+  40   1        j = 10;
+  41   1        k = 171;
+  42   1        do
+  43   1        {
+  44   2          do
+  45   2          {
+  46   3            while (--k);
+  47   3          } while (--j);
+  48   2        } while (--i);
+  49   1      }
+  50          
+  51          
+  52          
+  53          void require_delay_init() {
+  54   1        set_push_pull_output_on1(IO_LED3);
+  55   1        set_push_pull_output_on5(IO_LED1);
+C51 COMPILER V9.52.0.0   COM_1                                                             10/11/2015 15:46:04 PAGE 2   
+
+  56   1        set_push_pull_output_on5(IO_LED2);
+  57   1      
+  58   1        //set_push_pull_output_on1(IO_AMP);
+  59   1      //  set_quasi_bidirectional_on1(IO_AMP);
+  60   1        set_input_only_on1(IO_SENSOR);
+  61   1        set_input_only_on1(IO_ADC);
+  62   1        set_input_only_on3(IO_INT);
+  63   1        set_input_only_on3(IO_CODE);
+  64   1      
+  65   1      //  init_adc_amplifier();
+  66   1        init_adc();
+  67   1      }
+  68          
+  69          void instant_effective_init() {
+  70   1        init_system_component();
+  71   1        init_logic_params();
+  72   1      }
+  73          
+  74          void main()
+  75          {
+  76   1        u8 k = 8;
+  77   1        // stop catching interrupt
+  78   1        disable_all_interrupt();
+  79   1        // 
+  80   1        require_delay_init();
+  81   1        
+  82   1        while(--k)
+  83   1        {
+  84   2          Delay1000ms();
+  85   2        }
+  86   1        
+  87   1        // -> sync.h
+  88   1        sync_with_alert();
+  89   1      
+  90   1        instant_effective_init();
+  91   1        
+  92   1      
+  93   1        
+  94   1        
+  95   1      
+  96   1        // begin catching interrupt
+  97   1        enable_all_interrupt();
+  98   1        // run forever
+  99   1        
+ 100   1        
+ 101   1          while(1) {
+ 102   2            // Feed dog
+ 103   2            reset_watch_dog();
+ 104   2              if (INT_PROC & UART_PROC) {
+ 105   3              signal_t signal_raw = recieve_data_from_buffer();
+ 106   3              parse_crtl_signal(signal_raw);
+ 107   3              INT_PROC &= ~UART_PROC;
+ 108   3              continue;
+ 109   3            }
+ 110   2            // io status sampling finished
+ 111   2            if (INT_PROC & LM567_DUTY) {
+ 112   3              signal_t signal_raw;
+ 113   3              u8 signal_raw_search_index = 0, signal_raw_fall_counter = 2;
+ 114   3              if(quick_validate_signal(signal_raw_data)) {
+ 115   4                while (signal_raw_search_index < 7) {
+ 116   5                  if ((signal_raw_data & (0x03 << signal_raw_search_index)) == (0x02 << signal_raw_search_index))
+ 117   5                  {
+C51 COMPILER V9.52.0.0   COM_1                                                             10/11/2015 15:46:04 PAGE 3   
+
+ 118   6                    ++signal_raw_search_index;
+ 119   6                    ++signal_raw_fall_counter;
+ 120   6                  }
+ 121   5                  ++signal_raw_search_index;
+ 122   5                }
+ 123   4      
+ 124   4                if (fall_counter_whole < signal_raw_fall_counter) {
+ 125   5                  signal_raw = effective_signal(signal_raw_data);
+ 126   5                parse_crtl_signal(signal_raw);
+ 127   5                }
+ 128   4            }
+ 129   3            INT_PROC &= ~LM567_DUTY;
+ 130   3            EX1 = ENABLE;
+ 131   3              continue;
+ 132   3            }
+ 133   2            // 60hz * 2
+ 134   2            if (INT_PROC & EXINT_PROC) {
+ 135   3       //       if (cycle_output && toggle_status) 
+ 136   3              if (toggle_status) 
+ 137   3                toggle_once();  // -> display.h
+ 138   3              prepare_next_display_params();
+ 139   3              INT_PROC &= ~EXINT_PROC;
+ 140   3              continue;
+ 141   3            }
+ 142   2         //   // 5ms system tick-tock
+ 143   2            if (INT_PROC & TICK_DUTY) {
+ 144   3              cycle_based_adjust(counter_for_cycle);
+ 145   3                INT_PROC &= ~TICK_DUTY;
+ 146   3              continue;
+ 147   3            }
+ 148   2            if (INT_PROC & MINUTE_DUTY) {
+ 149   3              // -> display.h
+ 150   3              skip_to_next_display_if_should();
+ 151   3              INT_PROC &= ~MINUTE_DUTY;
+ 152   3              continue;
+ 153   3            }
+ 154   2            if (adc_should_sampling) {
+ 155   3              adc_sampling();
+ 156   3            }
+ 157   2          }
+ 158   1      }
+ 159          
+ 160          static void
+ 161          init_adc_amplifier() {
+ 162   1        high(P14);
+ 163   1      }
+ 164          
+ 165          static void
+ 166          init_system_component() {
+ 167   1        // init_uart();
+ 168   1        init_sync_timer();
+ 169   1        init_ac_driver();
+ 170   1        init_phase_sync_timer();
+ 171   1        init_signal_decoder();
+ 172   1      }
+ 173          
+ 174          static void
+ 175          init_logic_params() {
+ 176   1        display_startup_init();
+ 177   1      }
+
+
+C51 COMPILER V9.52.0.0   COM_1                                                             10/11/2015 15:46:04 PAGE 4   
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    362    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----       4
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+   EDATA SIZE       =   ----    ----
+   HDATA SIZE       =   ----    ----
+   XDATA CONST SIZE =   ----    ----
+   FAR CONST SIZE   =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
